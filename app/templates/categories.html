@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}Categories{% endblock %}
+{% block content %}
+<div class="page-head"><h1>Categories &amp; tags</h1></div>
+<p class="hint">Two levels: main categories (e.g. Food) with optional subcategories (e.g. Groceries, Restaurants). You can book entries on either level.
+Categories that are in use can’t be deleted, but you can hide them; they stay in old reports.</p>
+
+<div class="grid two">
+{% for kind, tree in trees.items() %}
+<section class="card">
+  <h2>{{ KINDS[kind] }} categories</h2>
+  <ul class="tree">
+    {% for top, subs in tree %}
+    <li class="{{ 'inactive' if top.archived }}">
+      {% with c=top, kind=kind, tree=tree %}{% include "_category_row.html" %}{% endwith %}
+      {% if subs %}
+      <ul>{% for c in subs %}<li class="{{ 'inactive' if c.archived }}">{% include "_category_row.html" %}</li>{% endfor %}</ul>
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  <form method="post" action="/categories" class="add-row">
+    <input type="hidden" name="kind" value="{{ kind }}">
+    <input name="name" required maxlength="80" placeholder="New category name" aria-label="New category name">
+    <select name="parent_id" aria-label="Place under">
+      <option value="">as main category</option>
+      {% for top, _ in tree if not top.archived %}<option value="{{ top.id }}">under {{ top.name }}</option>{% endfor %}
+    </select>
+    <button class="btn primary">Add</button>
+  </form>
+</section>
+{% endfor %}
+</div>
+
+<section class="card" id="tags">
+  <h2>Tags</h2>
+  <p class="hint">Tags cut across categories: e.g. tag everything from a trip “Vacation 2026” and filter the report by it. Create tags simply by typing them when adding an entry.</p>
+  {% if tags %}
+  <ul class="list">
+    {% for t in tags %}
+    <li>
+      <form method="post" action="/tags/{{ t.id }}" class="inline grow">
+        <input name="name" value="{{ t.name }}" maxlength="50" aria-label="Tag name"><button class="btn small">Rename</button>
+      </form>
+      <a href="/reports?view=year&tag={{ t.id }}" class="muted">{{ tag_counts.get(t.id, 0) }} entries</a>
+      <form method="post" action="/tags/{{ t.id }}/delete" data-confirm="Remove the tag “{{ t.name }}” from all entries?"><button class="btn small">Delete</button></form>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}<p class="empty">No tags yet.</p>{% endif %}
+</section>
+{% endblock %}

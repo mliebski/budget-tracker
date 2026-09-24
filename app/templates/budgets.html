@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block title %}Budgets{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>Budgets</h1>
+  <div class="pager">
+    <a class="btn" href="?fy={{ fy - 1 }}" aria-label="Previous year">‹</a>
+    <strong>{{ fy_label(fy) }}</strong>
+    <a class="btn" href="?fy={{ fy + 1 }}" aria-label="Next year">›</a>
+  </div>
+</div>
+
+<details class="note"{{ ' open' if is_empty }}>
+  <summary>How budgets work</summary>
+  <p>Set a <strong>monthly</strong> amount for everyday categories (groceries, fuel). For bills that come once or a few times a year
+  (insurance, property tax), put the yearly total under <strong>Yearly</strong> and choose either <em>spread evenly</em> (1/12 each month)
+  or the month it is due. A main category’s budget is the sum of its lines. The reference columns show last budget year’s actual and
+  your recent monthly average ({{ window }} months) to help you pick numbers.</p>
+</details>
+
+{% if is_empty and has_previous %}
+<form method="post" action="/budgets/copy" class="card inline-card">
+  <input type="hidden" name="fy" value="{{ fy }}">
+  <span>No budget yet for {{ fy_label(fy) }}.</span>
+  <button class="btn primary">Copy from {{ fy_label(fy - 1) }}</button>
+</form>
+{% endif %}
+
+<form method="post" action="/budgets" data-budget-form>
+  <input type="hidden" name="fy" value="{{ fy }}">
+  {% for section in sections %}
+  <section class="card">
+    <div class="card-head"><h2>{{ KINDS[section.kind] }}</h2><strong class="num" data-kind-total="{{ section.kind }}">{{ section.total|money(false) }} / year</strong></div>
+    <div class="table-wrap">
+    <table class="budget-table">
+      <thead><tr>
+        <th>Category</th><th class="num">Monthly</th><th class="num">Yearly</th><th>Yearly timing</th>
+        <th class="num">= Per year</th><th class="num ref">Last year</th><th class="num ref">Avg / month</th>
+      </tr></thead>
+      {% for g in section.groups %}
+      <tbody class="group" data-group data-kind="{{ section.kind }}">
+        {% for line in g.lines %}
+        {% set b = line.budget %}
+        <tr class="{{ 'top' if loop.first else 'sub' }}" data-line>
+          <th scope="row">{{ line.cat.name }}{% if loop.first and g.lines|length > 1 %} <small class="muted">general</small>{% endif %}</th>
+          <td class="num"><input name="m_{{ line.cat.id }}" inputmode="decimal" placeholder="0" aria-label="{{ line.cat.name }} monthly"
+                 value="{{ '%.2f'|format(b.monthly) if b and b.monthly else '' }}" data-monthly></td>
+          <td class="num"><input name="a_{{ line.cat.id }}" inputmode="decimal" placeholder="0" aria-label="{{ line.cat.name }} yearly"
+                 value="{{ '%.2f'|format(b.annual) if b and b.annual else '' }}" data-annual></td>
+          <td><select name="am_{{ line.cat.id }}" aria-label="{{ line.cat.name }} timing">
+                <option value="">Spread evenly</option>
+                {% for m in fy_month_numbers %}<option value="{{ m }}"{{ ' selected' if b and b.annual_month == m }}>Due in {{ month_name(m) }}</option>{% endfor %}
+              </select></td>
+          <td class="num" data-line-total>{{ line.annual_total|money(false) }}</td>
+          <td class="num ref">{{ line.last_year|money(false) if line.last_year else '–' }}</td>
+          <td class="num ref">{{ line.average|money(false) if line.average else '–' }}</td>
+        </tr>
+        {% endfor %}
+        {% if g.lines|length > 1 %}
+        <tr class="group-total"><th scope="row">{{ g.top.name }} total</th><td></td><td></td><td></td>
+          <td class="num" data-group-total>{{ g.total|money(false) }}</td><td class="num ref">{{ g.last_year|money(false) if g.last_year else '–' }}</td><td></td></tr>
+        {% endif %}
+      </tbody>
+      {% endfor %}
+    </table>
+    </div>
+  </section>
+  {% endfor %}
+  <div class="sticky-actions"><button class="btn primary">Save budget for {{ fy_label(fy) }}</button></div>
+</form>
+{% if not is_empty and has_previous %}
+<form method="post" action="/budgets/copy" data-confirm="Replace this year's budget with a copy of last year's?">
+  <input type="hidden" name="fy" value="{{ fy }}"><button class="btn">Replace with copy of {{ fy_label(fy - 1) }}</button>
+</form>
+{% endif %}
+{% endblock %}

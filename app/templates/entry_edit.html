@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% from "_macros.html" import entry_fields, category_data %}
+{% block title %}Edit entry{% endblock %}
+{% block content %}
+<div class="narrow">
+  <div class="page-head"><h1>Edit entry</h1><a href="{{ next }}">Cancel</a></div>
+  {% if entry.recurring %}
+  <p class="note">Created by the recurring item <a href="/recurring/{{ entry.recurring.id }}">{{ entry.recurring.name }}</a>. Changes here only affect this occurrence.</p>
+  {% endif %}
+  <form class="card" method="post" action="/entries/{{ entry.id }}" data-entry-form>
+    {{ entry_fields(categories, tags, entry=entry) }}
+    <input type="hidden" name="next" value="{{ next }}">
+    <button class="btn primary block">Save</button>
+  </form>
+  <form method="post" action="/entries/{{ entry.id }}/delete" data-confirm="Delete this entry?">
+    <input type="hidden" name="next" value="{{ next }}">
+    <button class="btn danger">Delete entry</button>
+  </form>
+</div>
+{{ category_data(categories) }}
+{% endblock %}

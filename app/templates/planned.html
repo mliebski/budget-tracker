@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% from "_macros.html" import kind_toggle, category_select, category_data %}
+{% block title %}Planned{% endblock %}
+{% block content %}
+<div class="page-head"><h1>Planned purchases</h1></div>
+<p class="hint">Big one-off costs you know are coming, like a new car, roof repair or furnace, or one-off income such as selling a car. They are included in the forecast for their month. Once paid, tap <strong>Paid</strong> to record the real amount.</p>
+
+<div class="grid two">
+  <section class="card">
+    {% set p = editing %}
+    <h2>{{ 'Edit planned item' if p else 'Add planned item' }}</h2>
+    <form method="post" action="/planned" data-entry-form>
+      <input type="hidden" name="pid" value="{{ p.id if p else '' }}">
+      {{ kind_toggle(p.category.kind if p else 'expense') }}
+      <label class="amount"><span class="cur">$</span><input name="amount" inputmode="decimal" placeholder="0.00" required aria-label="Amount" value="{{ p.amount if p else '' }}"></label>
+      <label class="field"><span>What</span><input name="name" required maxlength="100" value="{{ p.name if p else '' }}" placeholder="e.g. New roof"></label>
+      <div class="row">
+        <label class="field"><span>Expected date</span><input type="date" name="date" required value="{{ p.date.isoformat() if p else '' }}"></label>
+      </div>
+      <label class="field"><span>Category</span>{{ category_select('category_id', categories, p.category_id if p else None) }}</label>
+      <label class="field"><span>Note</span><input name="note" maxlength="255" value="{{ p.note if p else '' }}" placeholder="optional"></label>
+      <button class="btn primary block">{{ 'Save' if p else 'Add to plan' }}</button>
+      {% if p %}<a class="btn block" href="/planned">Cancel</a>{% endif %}
+    </form>
+  </section>
+
+  <section class="card">
+    <div class="card-head"><h2>Coming up</h2><strong class="num">{{ total|money(false) }}</strong></div>
+    {% if open_items %}
+    <ul class="list planned">
+      {% for p in open_items %}
+      <li>
+        <div class="grow">
+          <a href="/planned?edit={{ p.id }}">{{ p.name }}</a>
+          <small class="muted block">{{ p.date.strftime('%d %b %Y') }} · {{ p.category.full_name }}{{ ' · ' ~ p.note if p.note }}</small>
+          {% if p.date < today %}<small class="neg">Overdue: counted in this month’s forecast</small>{% endif %}
+        </div>
+        <span class="num {{ 'pos' if p.category.kind == 'income' }}">{{ p.amount|money }}</span>
+        <details class="actions">
+          <summary class="btn small">Paid…</summary>
+          <form method="post" action="/planned/{{ p.id }}/record" class="mini-form">
+            <label class="field compact"><span>Actual amount</span><input name="amount" inputmode="decimal" value="{{ p.amount }}"></label>
+            <label class="field compact"><span>Date</span><input type="date" name="date" value="{{ today.isoformat() }}"></label>
+            <button class="btn primary small">Record entry</button>
+          </form>
+          <form method="post" action="/planned/{{ p.id }}/cancel"><button class="btn small">Cancel plan</button></form>
+        </details>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}<p class="empty">Nothing planned.</p>{% endif %}
+  </section>
+</div>
+
+{% if closed %}
+<section class="card">
+  <h2>Done &amp; cancelled</h2>
+  <ul class="list">
+    {% for p in closed %}
+    <li class="inactive">
+      <span class="date">{{ p.date.strftime('%b %Y') }}</span>
+      <span class="grow">{{ p.name }} <small class="muted">{{ 'paid' if p.status == 'done' else 'cancelled' }}</small></span>
+      <span class="num">{{ p.amount|money }}</span>
+      {% if p.status == 'cancelled' %}<form method="post" action="/planned/{{ p.id }}/cancel"><button class="btn small">Restore</button></form>{% endif %}
+      <form method="post" action="/planned/{{ p.id }}/delete" data-confirm="Delete “{{ p.name }}” permanently?"><button class="btn small">Delete</button></form>
+    </li>
+    {% endfor %}
+  </ul>
+</section>
+{% endif %}
+{{ category_data(categories) }}
+{% endblock %}

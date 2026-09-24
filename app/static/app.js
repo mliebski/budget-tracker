@@ -1,0 +1,177 @@
+(function () {
+  "use strict";
+
+  const cad = new Intl.NumberFormat("en-CA", { style: "currency", currency: "CAD", maximumFractionDigits: 0 });
+  const cadCents = new Intl.NumberFormat("en-CA", { style: "currency", currency: "CAD" });
+
+  function parseAmount(text) {
+    const cleaned = String(text || "").replace(/[$,\s]/g, "").replace(/-/g, "+-");
+    return cleaned.split("+").reduce((sum, p) => sum + (parseFloat(p) || 0), 0);
+  }
+
+  // --- Flash messages & confirmations ------------------------------------------
+  document.querySelectorAll("[data-dismiss]").forEach((btn) =>
+    btn.addEventListener("click", () => btn.closest(".flash").remove()));
+  if (window.history.replaceState && /[?&](msg|undo|error)=/.test(location.search)) {
+    // Drop the message from the URL so a reload doesn't show it again.
+    const url = new URL(location.href);
+    ["msg", "undo", "error"].forEach((k) => url.searchParams.delete(k));
+    history.replaceState(null, "", url.pathname + url.search + url.hash);
+  }
+  document.querySelectorAll("form[data-confirm]").forEach((form) =>
+    form.addEventListener("submit", (e) => { if (!confirm(form.dataset.confirm)) e.preventDefault(); }));
+  document.querySelectorAll("select[data-autosubmit]").forEach((sel) =>
+    sel.addEventListener("change", () => sel.form.submit()));
+
+  // --- Expandable table groups ---------------------------------------------------
+  document.querySelectorAll("[data-expand]").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      const open = btn.getAttribute("aria-expanded") !== "true";
+      btn.setAttribute("aria-expanded", String(open));
+      btn.closest("tbody").querySelectorAll("tr.sub").forEach((tr) => { tr.hidden = !open; });
+    }));
+
+  // --- Entry forms: expense/income toggle filters categories ------------------------
+  document.querySelectorAll("form[data-entry-form]").forEach((form) => {
+    const select = form.querySelector("select[data-category-select]");
+    if (!select) return;
+    const original = select.cloneNode(true);
+    const chips = form.querySelectorAll(".chip[data-cat]");
+    const radios = form.querySelectorAll('input[name="kind"]');
+
+    function currentKind() {
+      const r = form.querySelector('input[name="kind"]:checked');
+      return r ? r.value : "expense";
+    }
+    function markChips() {
+      chips.forEach((c) => c.classList.toggle("on", c.dataset.cat === select.value));
+    }
+    function applyKind() {
+      const kind = currentKind();
+      const value = select.value;
+      select.innerHTML = "";
+      Array.from(original.children).forEach((node) => {
+        if (node.tagName === "OPTGROUP" && node.dataset.kind !== kind) return;
+        select.appendChild(node.cloneNode(true));
+      });
+      const stillThere = Array.from(select.options).some((o) => o.value === value);
+      select.value = stillThere ? value : "";
+      chips.forEach((c) => { c.hidden = c.dataset.kind !== kind; });
+      markChips();
+    }
+    radios.forEach((r) => r.addEventListener("change", applyKind));
+    chips.forEach((chip) => chip.addEventListener("click", () => {
+      select.value = chip.dataset.cat;
+      markChips();
+      const amount = form.querySelector('input[name="amount"]');
+      if (amount && !amount.value) amount.focus();
+    }));
+    select.addEventListener("change", markChips);
+    // Pick the matching toggle when an existing category of the other kind is selected.
+    const selected = select.selectedOptions[0];
+    if (selected && selected.dataset.kind) {
+      const radio = form.querySelector(`input[name="kind"][value="${selected.dataset.kind}"]`);
+      if (radio) radio.checked = true;
+    }
+    applyKind();
+  });
+
+  // --- Budget form: live yearly totals ------------------------------------------------
+  const budgetForm = document.querySelector("form[data-budget-form]");
+  if (budgetForm) {
+    const recalc = () => {
+      const kinds = {};
+      budgetForm.querySelectorAll("tbody[data-group]").forEach((group) => {
+        let groupTotal = 0;
+        group.querySelectorAll("tr[data-line]").forEach((tr) => {
+          const total = parseAmount(tr.querySelector("[data-monthly]").value) * 12 +
+                        parseAmount(tr.querySelector("[data-annual]").value);
+          tr.querySelector("[data-line-total]").textContent = cad.format(total);
+          groupTotal += total;
+        });
+        const gt = group.querySelector("[data-group-total]");
+        if (gt) gt.textContent = cad.format(groupTotal);
+        kinds[group.dataset.kind] = (kinds[group.dataset.kind] || 0) + groupTotal;
+      });
+      Object.entries(kinds).forEach(([k, v]) => {
+        const el = budgetForm.querySelector(`[data-kind-total="${k}"]`);
+        if (el) el.textContent = cad.format(v) + " / year";
+      });
+    };
+    budgetForm.addEventListener("input", recalc);
+  }
+
+  // --- Charts ------------------------------------------------------------------------
+  if (!window.Chart) return;
+  const css = getComputedStyle(document.documentElement);
+  const v = (name) => css.getPropertyValue(name).trim();
+  const dark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+  const ROLE = {
+    actual: v("--bar-fill"),
+    budget: dark ? "#8a9a96" : "#7b8a86",
+    forecast: v("--bar-proj"),
+    income: v("--pos"),
+    expense: v("--neg"),
+    net: dark ? "#7aa7ff" : "#2f5fd0",
+    recurring: dark ? "#7aa7ff" : "#2f5fd0",
+    variable: dark ? "#2cb1a3" : "#0f766e",
+    planned: dark ? "#e3b341" : "#b7791f",
+  };
+  const PALETTE = dark
+    ? ["#2cb1a3", "#7aa7ff", "#e3b341", "#f08a5d", "#b794f4", "#4cc79a", "#f687b3", "#90cdf4", "#c6a67a", "#a0aec0"]
+    : ["#0f766e", "#2f5fd0", "#b7791f", "#c2410c", "#7c3aed", "#11795a", "#be185d", "#0284c7", "#8b5e34", "#64748b"];
+
+  Chart.defaults.color = v("--muted");
+  Chart.defaults.borderColor = v("--border");
+  Chart.defaults.font.family = getComputedStyle(document.body).fontFamily;
+  Chart.defaults.animation = false;
+
+  document.querySelectorAll("canvas[data-chart]").forEach((canvas) => {
+    const spec = JSON.parse(document.getElementById(canvas.dataset.chart).textContent);
+    const isDoughnut = spec.type === "doughnut";
+    const datasets = spec.datasets.map((ds, i) => {
+      const color = ROLE[ds.role] || PALETTE[0];
+      // Only datasets that share an explicit stack are stacked; lines never stack.
+      const out = { label: ds.label, data: ds.data, stack: ds.stack || `own-${i}` };
+      if (isDoughnut) {
+        out.backgroundColor = spec.labels.map((_, i) => PALETTE[i % PALETTE.length]);
+        out.borderColor = v("--surface");
+        out.borderWidth = 2;
+      } else if ((ds.type || spec.type) === "line") {
+        Object.assign(out, { type: "line", borderColor: color, backgroundColor: color, borderWidth: 2,
+                             pointRadius: 2, tension: 0.25, order: 0, spanGaps: true });
+        if (ds.role === "budget") out.borderDash = [6, 4];
+      } else {
+        Object.assign(out, { backgroundColor: color, borderRadius: 4, order: 1, maxBarThickness: 28 });
+      }
+      return out;
+    });
+    const money = (val) => (Math.abs(val) >= 1000 ? cad.format(val) : cadCents.format(val));
+    const options = {
+      maintainAspectRatio: false,
+      responsive: true,
+      interaction: { mode: isDoughnut ? "nearest" : "index", intersect: false },
+      plugins: {
+        legend: { position: isDoughnut ? "right" : "bottom", labels: { boxWidth: 12, usePointStyle: true } },
+        tooltip: {
+          callbacks: {
+            label: (ctx) => {
+              const val = isDoughnut ? ctx.parsed : (spec.horizontal ? ctx.parsed.x : ctx.parsed.y);
+              return val == null ? null : ` ${ctx.dataset.label || ctx.label}: ${money(val)}`;
+            },
+          },
+        },
+      },
+    };
+    if (isDoughnut) {
+      options.plugins.tooltip.callbacks.label = (ctx) => ` ${ctx.label}: ${money(ctx.parsed)}`;
+      if (window.innerWidth < 600) options.plugins.legend.position = "bottom";
+    } else {
+      const valueAxis = { beginAtZero: true, stacked: !!spec.stacked, ticks: { callback: (x) => cad.format(x) }, grid: { color: v("--border") } };
+      const catAxis = { stacked: !!spec.stacked, grid: { display: false } };
+      options.indexAxis = spec.horizontal ? "y" : "x";
+      options.scales = spec.horizontal ? { x: valueAxis, y: catAxis } : { x: catAxis, y: valueAxis };
+    }
+    new Chart(canvas, { type: isDoughnut ? "doughnut" : "bar", data: { labels: spec.labels, datasets }, options });
+  });
+})();

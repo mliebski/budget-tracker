@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% from "_macros.html" import chart %}
+{% block title %}Assets{% endblock %}
+{% block content %}
+<div class="page-head"><h1>Assets &amp; net worth</h1></div>
+
+<div class="stats card">
+  <div class="stat"><span>Assets</span><strong class="pos">{{ totals.assets|money(false) }}</strong></div>
+  <div class="stat"><span>Liabilities</span><strong>{{ totals.liabilities|money(false) }}</strong></div>
+  <div class="stat"><span>Net worth</span><strong class="{{ 'neg' if totals.net < 0 }}">{{ totals.net|money(false) }}</strong></div>
+</div>
+
+{% if networth_chart %}<section class="card"><h2>Net worth over time</h2>{{ chart('chart-networth', networth_chart, 260, 'Net worth over time') }}</section>{% endif %}
+
+{% for key, title in [('assets', 'Assets'), ('liabilities', 'Liabilities')] %}
+<section class="card">
+  <h2>{{ title }}</h2>
+  {% if groups[key] %}
+  <ul class="list assets">
+    {% for row in groups[key] %}{% set a = row.a %}
+    <li>
+      <div class="grow">
+        <a href="/assets/{{ a.id }}">{{ a.name }}</a>
+        <small class="muted block">{{ a.type_label }}{% if row.latest %} · as of {{ row.latest.date.strftime('%d %b %Y') }}{% endif %}</small>
+      </div>
+      <div class="num">
+        {{ row.latest.value|money if row.latest else '–' }}
+        {% if row.change %}<small class="block {{ 'pos' if (row.change > 0) != a.is_liability else 'neg' }}">{{ '+' if row.change > 0 }}{{ row.change|money }}</small>{% endif %}
+      </div>
+      <details class="actions">
+        <summary class="btn small">Update</summary>
+        <form method="post" action="/assets/{{ a.id }}/value" class="mini-form">
+          <label class="field compact"><span>{{ 'Balance owed' if a.is_liability else 'Value' }}</span><input name="value" inputmode="decimal" required value="{{ row.latest.value if row.latest else '' }}"></label>
+          <label class="field compact"><span>As of</span><input type="date" name="value_date" value="{{ today.isoformat() }}"></label>
+          <button class="btn primary small">Save</button>
+        </form>
+      </details>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}<p class="empty">None yet.</p>{% endif %}
+</section>
+{% endfor %}
+
+<section class="card narrow-card">
+  <h2>Add an asset or liability</h2>
+  <form method="post" action="/assets">
+    <label class="field"><span>Name</span><input name="name" required maxlength="100" placeholder="e.g. TD Chequing, TFSA, Honda Civic, Mortgage"></label>
+    <label class="field"><span>Type</span>
+      <select name="type" required>
+        <optgroup label="Assets">{% for k, t in ASSET_TYPES.items() if not t[1] %}<option value="{{ k }}">{{ t[0] }}</option>{% endfor %}</optgroup>
+        <optgroup label="Liabilities (what you owe)">{% for k, t in ASSET_TYPES.items() if t[1] %}<option value="{{ k }}">{{ t[0] }}</option>{% endfor %}</optgroup>
+      </select></label>
+    <div class="row">
+      <label class="field"><span>Current value / balance owed</span><input name="value" inputmode="decimal" placeholder="optional"></label>
+      <label class="field"><span>As of</span><input type="date" name="value_date" value="{{ today.isoformat() }}"></label>
+    </div>
+    <label class="field"><span>Note</span><input name="note" maxlength="255" placeholder="optional, e.g. account number ending"></label>
+    <button class="btn primary block">Add</button>
+  </form>
+  <p class="hint">Update values whenever you like (e.g. monthly from your statements). Liabilities are entered as the positive amount owed. Bank &amp; cash balances also seed the balance projection on the Forecast page.</p>
+</section>
+
+{% if archived %}
+<details class="card">
+  <summary>Archived ({{ archived|length }})</summary>
+  <ul class="list">{% for row in archived %}<li class="inactive"><a class="grow" href="/assets/{{ row.a.id }}">{{ row.a.name }}</a><span class="num">{{ row.latest.value|money if row.latest else '–' }}</span></li>{% endfor %}</ul>
+</details>
+{% endif %}
+{% endblock %}
+{% block scripts %}<script src="/static/vendor/chart.umd.min.js"></script>{% endblock %}

@@ -1,0 +1,21 @@
+<details class="cat-row">
+  <summary>
+    <span class="grow">{{ c.name }}</span>
+    {% if c.archived %}<span class="badge">hidden</span>{% endif %}
+    <small class="muted">{{ usage.get(c.id, 0) }} entries</small>
+  </summary>
+  <div class="cat-edit">
+    <form method="post" action="/categories/{{ c.id }}" class="inline">
+      <input name="name" value="{{ c.name }}" required maxlength="80" aria-label="Name">
+      <select name="parent_id" aria-label="Position">
+        <option value="">main category</option>
+        {% for top, _ in tree if top.id != c.id %}<option value="{{ top.id }}"{{ ' selected' if c.parent_id == top.id }}>under {{ top.name }}</option>{% endfor %}
+      </select>
+      <button class="btn small primary">Save</button>
+    </form>
+    <form method="post" action="/categories/{{ c.id }}/archive"><button class="btn small">{{ 'Restore' if c.archived else 'Hide' }}</button></form>
+    {% if not usage.get(c.id) and not c.children %}
+    <form method="post" action="/categories/{{ c.id }}/delete" data-confirm="Delete “{{ c.name }}”?"><button class="btn small danger">Delete</button></form>
+    {% endif %}
+  </div>
+</details>

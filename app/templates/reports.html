@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% from "_macros.html" import chart %}
+{% block title %}Reports{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>Reports</h1>
+  <div class="seg links" role="tablist">
+    {% for v, l in [('month', 'Month'), ('quarter', 'Quarter'), ('year', 'Year')] %}
+    <a href="?view={{ v }}&fy={{ fy }}{{ '&tag=' ~ tag_id if tag_id }}"{% if view == v %} class="on" aria-current="page"{% endif %}>{{ l }}</a>
+    {% endfor %}
+  </div>
+</div>
+
+<div class="toolbar">
+  <div class="pager">
+    <a class="btn" href="?view={{ view }}&fy={{ prev[0] }}&n={{ prev[1] }}{{ '&tag=' ~ tag_id if tag_id }}" aria-label="Previous">‹</a>
+    <strong>{{ label }}</strong>
+    <a class="btn" href="?view={{ view }}&fy={{ next[0] }}&n={{ next[1] }}{{ '&tag=' ~ tag_id if tag_id }}" aria-label="Next">›</a>
+  </div>
+  <form method="get" class="inline">
+    <input type="hidden" name="view" value="{{ view }}"><input type="hidden" name="fy" value="{{ fy }}"><input type="hidden" name="n" value="{{ n }}">
+    <label class="field compact"><span>Tag</span>
+      <select name="tag" data-autosubmit><option value="">All entries</option>
+        {% for t in tags %}<option value="{{ t.id }}"{{ ' selected' if t.id == tag_id }}>{{ t.name }}</option>{% endfor %}
+      </select></label>
+  </form>
+</div>
+{% if tag_id %}<p class="note">Showing only entries tagged “{{ (tags|selectattr('id', 'equalto', tag_id)|first).name }}”. Budgets and forecasts are hidden for tag views.</p>{% endif %}
+{% if is_open %}<p class="note">This period isn’t finished yet. <strong>Projected</strong> = actual so far + forecast for the rest of the period (recurring items, planned purchases and your typical spending).</p>{% endif %}
+
+<div class="stats card">
+  <div class="stat"><span>Income</span><strong class="pos">{{ summary.income|money(false) }}</strong>
+    {% if summary.income_budget %}<small>budget {{ summary.income_budget|money(false) }}</small>{% endif %}</div>
+  <div class="stat"><span>Spent</span><strong>{{ summary.spent|money(false) }}</strong>
+    {% if summary.budget %}<small>budget {{ summary.budget|money(false) }}</small>{% endif %}</div>
+  {% if summary.projected is not none %}
+  <div class="stat"><span>Projected spend</span><strong>{{ summary.projected|money(false) }}</strong>
+    {% if summary.budget %}{% set left = summary.budget - summary.projected %}<small class="{{ 'neg' if left < 0 else 'pos' }}">{{ left|abs|money(false) }} {{ 'over' if left < 0 else 'under' }}</small>{% endif %}</div>
+  {% endif %}
+  <div class="stat"><span>Net saved</span><strong class="{{ 'neg' if summary.net < 0 else 'pos' }}">{{ summary.net|money(false) }}</strong>
+    {% if summary.savings_rate is not none %}<small>{{ '%.0f'|format(summary.savings_rate) }}% of income</small>{% endif %}</div>
+</div>
+
+{% if charts.trend %}
+<section class="card"><h2>Month by month</h2>{{ chart('chart-trend', charts.trend, 300, 'Income, spending and budget by month') }}</section>
+{% endif %}
+
+<div class="grid two">
+  {% if charts.vs_budget %}
+  <section class="card"><h2>Spending vs budget</h2>{{ chart('chart-vs', charts.vs_budget, [220, 60 + 36 * expense_rows|length]|max, 'Spending versus budget by category') }}</section>
+  {% endif %}
+  {% if charts.breakdown %}
+  <section class="card"><h2>Where the money went</h2>{{ chart('chart-breakdown', charts.breakdown, 300, 'Spending by category') }}</section>
+  {% endif %}
+</div>
+
+<section class="card">
+  <h2>Expenses</h2>
+  {% if expense_rows %}
+    {% with rows=expense_rows, totals=expense_totals, title='Category', kind='expense' %}{% include "_report_table.html" %}{% endwith %}
+  {% else %}<p class="empty">No expenses or budgets in this period.</p>{% endif %}
+</section>
+
+<section class="card">
+  <h2>Income</h2>
+  {% if income_rows %}
+    {% with rows=income_rows, totals=income_totals, title='Category', kind='income' %}{% include "_report_table.html" %}{% endwith %}
+  {% else %}<p class="empty">No income in this period.</p>{% endif %}
+</section>
+
+{% if trend %}
+<section class="card">
+  <h2>Monthly table</h2>
+  <div class="table-wrap">
+  <table class="report">
+    <thead><tr><th>Month</th><th class="num">Income</th><th class="num">Spent</th>{% if not tag_id %}<th class="num">Budget</th><th class="num">Projected</th>{% endif %}<th class="num">Net</th></tr></thead>
+    <tbody>
+      {% for p in trend %}
+      <tr><th scope="row"><a href="?view=month&fy={{ fy }}&n={{ loop.index if view == 'year' else (n - 1) * 3 + loop.index }}">{{ p.month.strftime('%b %Y') }}</a></th>
+        <td class="num">{{ p.income|money(false) }}</td><td class="num">{{ p.spent|money(false) }}</td>
+        {% if not tag_id %}<td class="num">{{ p.budget|money(false) }}</td><td class="num">{{ p.projected_spend|money(false) if p.projected_spend is not none else '' }}</td>{% endif %}
+        {% set net = p.income - p.spent %}<td class="num {{ 'neg' if net < 0 else '' }}">{{ net|money(false) }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</section>
+{% endif %}
+{% endblock %}
+{% block scripts %}<script src="/static/vendor/chart.umd.min.js"></script>{% endblock %}

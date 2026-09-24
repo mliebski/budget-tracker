@@ -1,0 +1,53 @@
+services:
+  db:
+    image: mariadb:11.4
+    restart: unless-stopped
+    environment:
+      MARIADB_DATABASE: budget
+      MARIADB_USER: budget
+      MARIADB_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env}
+      MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:?set DB_ROOT_PASSWORD in .env}
+      TZ: ${TZ:-America/Toronto}
+    volumes:
+      - db_data:/var/lib/mysql
+    # No "ports:" on purpose: the database is only reachable by the other containers.
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: mysql+pymysql://budget:${DB_PASSWORD}@db:3306/budget?charset=utf8mb4
+      TZ: ${TZ:-America/Toronto}
+      FY_START_MONTH: ${FY_START_MONTH:-10}
+      BACKUP_DIR: /backups
+    ports:
+      - "${APP_PORT:-8000}:8000"
+    volumes:
+      - ${BACKUP_PATH:-./backups}:/backups:ro
+
+  backup:
+    image: mariadb:11.4
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DB_PASSWORD: ${DB_PASSWORD}
+      TZ: ${TZ:-America/Toronto}
+      BACKUP_TIME: ${BACKUP_TIME:-02:30}
+      BACKUP_KEEP_DAYS: ${BACKUP_KEEP_DAYS:-30}
+    volumes:
+      - ${BACKUP_PATH:-./backups}:/backups
+      - ./backup/backup.sh:/backup.sh:ro
+    entrypoint: ["bash", "/backup.sh"]
+
+volumes:
+  db_data:

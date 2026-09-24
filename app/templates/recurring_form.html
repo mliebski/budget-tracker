@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% from "_macros.html" import kind_toggle, category_select, tag_input, category_data %}
+{% block title %}{{ 'Edit' if r.id else 'New' }} recurring{% endblock %}
+{% block content %}
+<div class="narrow">
+  <div class="page-head"><h1>{{ 'Edit recurring item' if r.id else 'New recurring item' }}</h1><a href="/recurring">Cancel</a></div>
+  <form class="card" method="post" action="/recurring{{ '/' ~ r.id if r.id }}" data-entry-form>
+    {{ kind_toggle(kind) }}
+    <label class="amount"><span class="cur">$</span>
+      <input name="amount" inputmode="decimal" placeholder="0.00" required aria-label="Amount" value="{{ r.amount if r.amount is not none else '' }}"></label>
+    <label class="field"><span>Name</span><input name="name" maxlength="100" value="{{ r.name }}" placeholder="e.g. Rent, Netflix, Pay cheque"></label>
+    <label class="field"><span>Category</span>{{ category_select('category_id', categories, r.category_id) }}</label>
+    <label class="field"><span>Repeats</span>
+      <select name="frequency">{% for key, f in FREQUENCIES.items() %}<option value="{{ key }}"{{ ' selected' if r.frequency == key }}>{{ f[0] }}</option>{% endfor %}</select></label>
+    <div class="row">
+      <label class="field"><span>{{ 'First date' if not r.id else 'Schedule start' }}</span><input type="date" name="start_date" required value="{{ r.start_date.isoformat() }}"></label>
+      <label class="field"><span>Ends (optional)</span><input type="date" name="end_date" value="{{ r.end_date.isoformat() if r.end_date else '' }}"></label>
+    </div>
+    {{ tag_input(tags, r.tags if r.id else []) }}
+    <p class="hint">{% if r.id %}Changes apply to upcoming occurrences; entries already created stay as they are (edit them individually on the Entries page).
+      {% else %}If the first date is in the past, the missed occurrences up to today are added as entries too.{% endif %}</p>
+    <button class="btn primary block">Save</button>
+  </form>
+  {% if r.id %}
+  {% if recent %}
+  <section class="card">
+    <h2>Recent entries from this item</h2>
+    <ul class="list">{% for e in recent %}
+      <li><span class="date">{{ e.date.strftime('%d %b %Y') }}</span><a class="grow" href="/entries/{{ e.id }}/edit?next=/recurring/{{ r.id }}">{{ e.note }}</a><span class="num">{{ e.amount|money }}</span></li>
+    {% endfor %}</ul>
+  </section>
+  {% endif %}
+  <form method="post" action="/recurring/{{ r.id }}/delete" data-confirm="Delete this recurring item? Entries it already created are kept.">
+    <button class="btn danger">Delete recurring item</button>
+  </form>
+  {% endif %}
+</div>
+{{ category_data(categories) }}
+{% endblock %}

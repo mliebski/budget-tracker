@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% from "_macros.html" import entry_fields, progress, category_data %}
+{% block title %}Home{% endblock %}
+{% block content %}
+<div class="grid dash">
+  <section class="card quick-add">
+    <h2>Quick add</h2>
+    <form method="post" action="/entries" data-entry-form>
+      {{ entry_fields(categories, tags, recent_categories=recent_categories, today=today, autofocus=True) }}
+      <input type="hidden" name="next" value="/">
+      <button class="btn primary block">Add</button>
+    </form>
+  </section>
+
+  <section class="card">
+    <div class="card-head">
+      <h2>{{ today.strftime('%B') }}</h2>
+      <a href="/reports?view=month">Full report →</a>
+    </div>
+    <div class="stats">
+      <div class="stat"><span>Spent</span><strong>{{ month.totals.actual|money(false) }}</strong>
+        {% if month.totals.budget %}<small>of {{ month.totals.budget|money(false) }} budget</small>{% endif %}</div>
+      <div class="stat"><span>Projected month end</span><strong>{{ month.totals.projected|money(false) }}</strong>
+        {% if month.totals.budget %}{% set left = month.totals.budget - month.totals.projected %}
+        <small class="{{ 'neg' if left < 0 else 'pos' }}">{{ left|abs|money(false) }} {{ 'over' if left < 0 else 'under' }}</small>{% endif %}</div>
+      <div class="stat"><span>Income</span><strong>{{ month.income|money(false) }}</strong>
+        {% if month.income_projected > month.income %}<small>{{ month.income_projected|money(false) }} expected</small>{% endif %}</div>
+    </div>
+
+    {% if month.rows %}
+    <p class="hint">Bar = spent · light part = still expected this month · line = budget. {{ '%.0f'|format(month.elapsed) }}% of the month has passed.</p>
+    <ul class="progress-list">
+      {% for r in month.rows %}
+      <li>
+        <div class="progress-head">
+          <span>{{ r.cat.name }}</span>
+          <span class="num">{{ r.vals.actual|money(false) }}{% if r.vals.budget %}<span class="muted"> / {{ r.vals.budget|money(false) }}</span>{% endif %}</span>
+        </div>
+        {{ progress(r.vals.actual, r.vals.budget, r.vals.projected) }}
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="empty">Nothing spent yet this month. Add your first entry on the left, and set up <a href="/budgets">budgets</a> and <a href="/recurring">recurring items</a> to see progress here.</p>
+    {% endif %}
+  </section>
+
+  <section class="card">
+    <div class="card-head"><h2>{{ fy_label(year.fy) }}</h2><a href="/forecast">Forecast →</a></div>
+    <div class="stats">
+      <div class="stat"><span>Spent so far</span><strong>{{ year.spent|money(false) }}</strong>
+        {% if year.budget_to_date %}<small>budget to date {{ year.budget_to_date|money(false) }}</small>{% endif %}</div>
+      <div class="stat"><span>Projected year spend</span><strong>{{ year.projected_spend|money(false) }}</strong>
+        {% if year.budget %}{% set left = year.budget - year.projected_spend %}
+        <small class="{{ 'neg' if left < 0 else 'pos' }}">{{ left|abs|money(false) }} {{ 'over' if left < 0 else 'under' }} budget</small>{% endif %}</div>
+      <div class="stat"><span>Projected savings</span>
+        {% set saved = year.projected_income - year.projected_spend %}
+        <strong class="{{ 'neg' if saved < 0 }}">{{ saved|money(false) }}</strong>
+        <small>income {{ year.projected_income|money(false) }}</small></div>
+    </div>
+    {% if year.budget %}{{ progress(year.spent, year.budget, year.projected_spend) }}{% endif %}
+  </section>
+
+  <section class="card">
+    <div class="card-head"><h2>Next 30 days</h2><a href="/planned">Planned →</a></div>
+    {% if upcoming %}
+    <ul class="list">
+      {% for u in upcoming %}
+      <li>
+        <span class="date{{ ' neg' if u.overdue }}">{{ u.date.strftime('%a %d %b') }}</span>
+        <a href="{{ u.link }}" class="grow">{{ u.name }} <small class="muted">{{ u.category.name }} · {{ u.source }}{{ ' · overdue' if u.overdue }}</small></a>
+        <span class="num {{ 'pos' if u.category.kind == 'income' }}">{{ u.amount|money }}</span>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}<p class="empty">Nothing scheduled. Add <a href="/recurring">recurring items</a> (rent, salary, subscriptions) or <a href="/planned">planned purchases</a>.</p>{% endif %}
+  </section>
+
+  <section class="card wide">
+    <div class="card-head"><h2>Recently added</h2><a href="/entries">All entries →</a></div>
+    {% if recent %}
+    <ul class="list">
+      {% for e in recent %}
+      <li>
+        <span class="date">{{ e.date.strftime('%d %b') }}</span>
+        <a href="/entries/{{ e.id }}/edit?next=/" class="grow">{{ e.category.full_name }}
+          {% if e.note and e.note != e.category.name %}<small class="muted">{{ e.note }}</small>{% endif %}
+          {% for t in e.tags %}<span class="tag">{{ t.name }}</span>{% endfor %}</a>
+        <span class="num {{ 'pos' if e.kind == 'income' }}">{{ '+' if e.kind == 'income' }}{{ e.amount|money }}</span>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}<p class="empty">No entries yet.</p>{% endif %}
+  </section>
+</div>
+{{ category_data(categories) }}
+{% endblock %}

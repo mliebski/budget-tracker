@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}Settings{% endblock %}
+{% block content %}
+<div class="narrow">
+  <div class="page-head"><h1>Settings</h1></div>
+  <form class="card" method="post" action="/settings">
+    <h2>Forecast</h2>
+    <label class="field"><span>Typical spending = average of the last … months</span>
+      <input type="number" name="avg_months" min="1" max="24" value="{{ window }}"></label>
+    <p class="hint">Used to forecast variable spending (groceries, fuel, eating out). Recurring, planned and one-off entries are excluded.</p>
+    <button class="btn primary">Save</button>
+  </form>
+
+  <section class="card">
+    <h2>Backups</h2>
+    {% if backup_enabled %}
+      <p>Nightly backups are written to <code>{{ backup_dir }}</code> on the server.</p>
+      {% if backups %}
+      <ul class="list">{% for b in backups %}<li><span class="grow">{{ b.name }}</span><small class="muted">{{ b.when.strftime('%d %b %Y %H:%M') }} · {{ (b.size / 1024)|round(1) }} KB</small></li>{% endfor %}</ul>
+      {% else %}<p class="empty">No backup files yet. The first one is written tonight.</p>{% endif %}
+    {% else %}
+      <p class="empty">No backup folder is mounted (fine for local testing). See the README for the Docker setup with nightly backups.</p>
+    {% endif %}
+  </section>
+
+  <section class="card">
+    <h2>About</h2>
+    <ul class="list">
+      <li><span class="grow">Currency</span><span>Canadian dollar (CAD)</span></li>
+      <li><span class="grow">Budget year starts</span><span>{{ month_name(fy_start_month) }}</span></li>
+      <li><span class="grow">Database</span><span>{{ database }}</span></li>
+    </ul>
+  </section>
+</div>
+{% endblock %}

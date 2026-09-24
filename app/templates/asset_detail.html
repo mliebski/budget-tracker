@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% from "_macros.html" import chart %}
+{% block title %}{{ asset.name }}{% endblock %}
+{% block content %}
+<div class="page-head"><h1>{{ asset.name }}</h1><a href="/assets">← Assets</a></div>
+
+<div class="grid two">
+  <section class="card">
+    <h2>Record a value</h2>
+    <form method="post" action="/assets/{{ asset.id }}/value">
+      <input type="hidden" name="next" value="detail">
+      <div class="row">
+        <label class="field"><span>{{ 'Balance owed' if asset.is_liability else 'Value' }}</span><input name="value" inputmode="decimal" required value="{{ history[0].value if history else '' }}"></label>
+        <label class="field"><span>As of</span><input type="date" name="value_date" value="{{ today.isoformat() }}"></label>
+      </div>
+      <button class="btn primary block">Save value</button>
+    </form>
+  </section>
+  <section class="card">
+    <h2>Details</h2>
+    <form method="post" action="/assets/{{ asset.id }}">
+      <label class="field"><span>Name</span><input name="name" required maxlength="100" value="{{ asset.name }}"></label>
+      <label class="field"><span>Type</span>
+        <select name="type">{% for k, t in ASSET_TYPES.items() %}<option value="{{ k }}"{{ ' selected' if asset.type == k }}>{{ t[0] }}{{ ' (liability)' if t[1] }}</option>{% endfor %}</select></label>
+      <label class="field"><span>Note</span><input name="note" maxlength="255" value="{{ asset.note }}"></label>
+      <button class="btn block">Save details</button>
+    </form>
+  </section>
+</div>
+
+{% if history_chart %}<section class="card"><h2>History</h2>{{ chart('chart-asset', history_chart, 240, 'Value history') }}</section>{% endif %}
+
+<section class="card">
+  <h2>All values</h2>
+  {% if history %}
+  <ul class="list">
+    {% for v in history %}
+    <li><span class="date">{{ v.date.strftime('%d %b %Y') }}</span><span class="grow"></span><span class="num">{{ v.value|money }}</span>
+      <form method="post" action="/asset-values/{{ v.id }}/delete" data-confirm="Remove this value?"><button class="btn small">Remove</button></form></li>
+    {% endfor %}
+  </ul>
+  {% else %}<p class="empty">No values recorded yet.</p>{% endif %}
+</section>
+
+<div class="danger-zone">
+  <form method="post" action="/assets/{{ asset.id }}/archive"><button class="btn">{{ 'Restore' if asset.archived else 'Archive (sold / closed)' }}</button></form>
+  <form method="post" action="/assets/{{ asset.id }}/delete" data-confirm="Delete {{ asset.name }} and its whole history? Archiving keeps history in net worth."><button class="btn danger">Delete</button></form>
+</div>
+{% endblock %}
+{% block scripts %}<script src="/static/vendor/chart.umd.min.js"></script>{% endblock %}

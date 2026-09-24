@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}Recurring{% endblock %}
+{% block content %}
+<div class="page-head"><h1>Recurring</h1><a class="btn primary" href="/recurring/new">+ Add recurring</a></div>
+<p class="hint">Rent, salary, subscriptions, insurance… Each one is added to your entries automatically on its due date and is included in the forecast.</p>
+
+<div class="stats card">
+  <div class="stat"><span>Recurring income / month</span><strong class="pos">{{ totals.income|money(false) }}</strong></div>
+  <div class="stat"><span>Recurring costs / month</span><strong>{{ totals.expense|money(false) }}</strong></div>
+  <div class="stat"><span>Left for everything else</span>{% set left = totals.income - totals.expense %}<strong class="{{ 'neg' if left < 0 }}">{{ left|money(false) }}</strong></div>
+</div>
+
+{% if rows %}
+<div class="card">
+  <ul class="list">
+    {% for row in rows %}{% set r = row.r %}
+    <li class="{{ 'inactive' if not r.active or row.ended }}">
+      <a href="/recurring/{{ r.id }}" class="grow">
+        {{ r.name }}
+        <small class="muted">{{ r.category.full_name }} · {{ FREQUENCIES[r.frequency][0] }}
+          {% if not r.active %} · paused{% elif row.ended %} · ended {{ r.end_date.strftime('%d %b %Y') }}{% elif row.next %} · next {{ row.next.strftime('%a %d %b') }}{% endif %}</small>
+      </a>
+      <span class="num {{ 'pos' if r.category.kind == 'income' }}">{{ r.amount|money }}
+        {% if r.frequency != 'monthly' %}<small class="muted block">≈ {{ row.per_month|money(false) }}/mo</small>{% endif %}</span>
+      <form method="post" action="/recurring/{{ r.id }}/toggle"><button class="btn small">{{ 'Resume' if not r.active else 'Pause' }}</button></form>
+    </li>
+    {% endfor %}
+  </ul>
+</div>
+{% else %}
+<p class="card empty">No recurring items yet. <a href="/recurring/new">Add your first one</a>: your pay cheque and rent/mortgage are a good start.</p>
+{% endif %}
+{% endblock %}

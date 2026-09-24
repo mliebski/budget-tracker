@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% from "_macros.html" import category_select %}
+{% block title %}Entries{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>Entries</h1>
+  {% if current %}
+  <div class="pager">
+    <a class="btn" href="?month={{ prev_month.strftime('%Y-%m') }}" aria-label="Previous month">‹</a>
+    <strong>{{ current.strftime('%B %Y') }}</strong>
+    <a class="btn" href="?month={{ next_month.strftime('%Y-%m') }}" aria-label="Next month">›</a>
+  </div>
+  {% else %}
+  <div class="pager">
+    <a class="btn" href="?fy={{ fy - 1 }}">‹</a><strong>{{ fy_label(fy) }}</strong><a class="btn" href="?fy={{ fy + 1 }}">›</a>
+  </div>
+  {% endif %}
+</div>
+
+<form class="card filters" method="get">
+  {% if current %}
+  <label class="field"><span>Month</span><input type="month" name="month" value="{{ current.strftime('%Y-%m') }}"></label>
+  {% else %}
+  <input type="hidden" name="fy" value="{{ fy }}">
+  {% endif %}
+  <label class="field"><span>Category</span>{{ category_select('category', categories, category_id, required=False, blank='All categories') }}</label>
+  <label class="field"><span>Tag</span>
+    <select name="tag"><option value="">All tags</option>
+      {% for t in tags %}<option value="{{ t.id }}"{{ ' selected' if t.id == tag_id }}>{{ t.name }}</option>{% endfor %}
+    </select></label>
+  <label class="field"><span>Note contains</span><input name="q" value="{{ q }}" placeholder="search"></label>
+  <div class="filter-actions">
+    <button class="btn primary">Filter</button>
+    {% if current %}<a class="btn" href="?fy={{ fy_default }}">Whole budget year</a>{% else %}<a class="btn" href="/entries">By month</a>{% endif %}
+  </div>
+</form>
+
+<div class="stats card">
+  <div class="stat"><span>Spent</span><strong>{{ totals.expense|money }}</strong></div>
+  <div class="stat"><span>Income</span><strong class="pos">{{ totals.income|money }}</strong></div>
+  <div class="stat"><span>Net</span>{% set net = totals.income - totals.expense %}<strong class="{{ 'neg' if net < 0 else 'pos' }}">{{ net|money }}</strong></div>
+  <div class="stat"><span>Entries</span><strong>{{ entries|length }}</strong></div>
+</div>
+
+{% if by_day %}
+<div class="card">
+  {% for day, items in by_day %}
+  <h3 class="day">{{ day.strftime('%A %d %B') }}</h3>
+  <ul class="list">
+    {% for e in items %}
+    <li>
+      <a href="/entries/{{ e.id }}/edit?next={{ (request.url.path ~ ('?' ~ request.url.query if request.url.query else ''))|urlencode }}" class="grow">
+        {{ e.category.full_name }}
+        {% if e.note and e.note != e.category.name %}<small class="muted">{{ e.note }}</small>{% endif %}
+        {% if e.recurring_id %}<span class="badge">recurring</span>{% endif %}
+        {% if e.one_off %}<span class="badge">one-off</span>{% endif %}
+        {% for t in e.tags %}<span class="tag">{{ t.name }}</span>{% endfor %}
+      </a>
+      <span class="num {{ 'pos' if e.kind == 'income' }}">{{ '+' if e.kind == 'income' }}{{ e.amount|money }}</span>
+    </li>
+    {% endfor %}
+  </ul>
+  {% endfor %}
+</div>
+{% else %}
+<p class="card empty">No entries match. <a href="/">Add one on the home page.</a></p>
+{% endif %}
+{% endblock %}

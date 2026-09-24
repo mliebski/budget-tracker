@@ -1,0 +1,83 @@
+{% macro category_select(name, categories, selected=None, kind=None, required=True, blank='Choose a category…') %}
+<select name="{{ name }}" data-category-select{{ ' required' if required }}>
+  <option value="">{{ blank }}</option>
+  {% set items = categories|selectattr('kind', 'equalto', kind)|list if kind else categories %}
+  {% for c in items %}
+    {% if c.top %}
+      {% if not loop.first %}</optgroup>{% endif %}
+      <optgroup label="{{ KINDS[c.kind] }} · {{ c.name }}" data-kind="{{ c.kind }}">
+      <option value="{{ c.id }}" data-kind="{{ c.kind }}"{{ ' selected' if selected == c.id }}>{{ c.name }}{{ ' (general)' if c.has_children }}</option>
+    {% else %}
+      <option value="{{ c.id }}" data-kind="{{ c.kind }}"{{ ' selected' if selected == c.id }}>{{ c.name }}</option>
+    {% endif %}
+    {% if loop.last %}</optgroup>{% endif %}
+  {% endfor %}
+</select>
+{% endmacro %}
+
+{% macro kind_toggle(kind='expense') %}
+<div class="seg" role="radiogroup" aria-label="Type">
+  <label><input type="radio" name="kind" value="expense"{{ ' checked' if kind == 'expense' }}><span>Expense</span></label>
+  <label><input type="radio" name="kind" value="income"{{ ' checked' if kind == 'income' }}><span>Income</span></label>
+</div>
+{% endmacro %}
+
+{% macro entry_fields(categories, tags, entry=None, recent_categories=None, today=None, autofocus=False) %}
+{{ kind_toggle(entry.kind if entry else 'expense') }}
+<label class="amount">
+  <span class="cur">$</span>
+  <input name="amount" inputmode="decimal" placeholder="0.00" required autocomplete="off" aria-label="Amount"
+         value="{{ entry.amount if entry else '' }}"{{ ' autofocus' if autofocus }}>
+</label>
+{% if recent_categories %}
+<div class="chips" data-chips aria-label="Recently used categories">
+  {% for c in recent_categories %}<button type="button" class="chip" data-cat="{{ c.id }}" data-kind="{{ c.kind }}">{{ c.name }}</button>{% endfor %}
+</div>
+{% endif %}
+<label class="field"><span>Category</span>{{ category_select('category_id', categories, entry.category_id if entry else None) }}</label>
+<div class="row">
+  <label class="field"><span>Date</span><input type="date" name="date" required value="{{ (entry.date if entry else today).isoformat() }}"></label>
+  <label class="field grow"><span>Note</span><input name="note" maxlength="255" placeholder="optional" value="{{ entry.note if entry else '' }}"></label>
+</div>
+{{ tag_input(tags, entry.tags if entry else []) }}
+<details class="more"{{ ' open' if entry and entry.one_off }}>
+  <summary>More options</summary>
+  <label class="check"><input type="checkbox" name="one_off" value="true"{{ ' checked' if entry and entry.one_off }}>
+    <span>One-off (big purchase or unusual item): keep it out of the “typical spending” average used by the forecast</span></label>
+</details>
+{% endmacro %}
+
+{% macro tag_input(tags, current=[]) %}
+<label class="field"><span>Tags</span>
+  <input name="tags" list="tag-options" autocomplete="off" placeholder="e.g. Vacation 2026 (comma separated)"
+         value="{{ current|map(attribute='name')|join(', ') }}"></label>
+<datalist id="tag-options">{% for t in tags %}<option value="{{ t.name }}">{% endfor %}</datalist>
+{% endmacro %}
+
+{% macro progress(actual, budget=None, projected=None, elapsed=None) %}
+{% set g = bar(actual, budget, projected) %}
+<div class="bar {{ g.state }}" role="img"
+     aria-label="{{ actual|money }} spent{% if budget %} of {{ budget|money }} budget{% endif %}{% if projected %}, projected {{ projected|money }}{% endif %}">
+  <span class="fill" style="width: {{ '%.1f'|format(g.fill) }}%"></span>
+  {% if g.proj > 0.2 %}<span class="proj" style="left: {{ '%.1f'|format(g.fill) }}%; width: {{ '%.1f'|format(g.proj) }}%"></span>{% endif %}
+  {% if g.mark is not none %}<span class="mark" style="left: {{ '%.1f'|format(g.mark) }}%"></span>{% endif %}
+</div>
+{% endmacro %}
+
+{% macro variance(budget, value, invert=False) %}
+{% if budget %}
+  {% set diff = (value - budget) if invert else (budget - value) %}
+  <span class="{{ 'neg' if diff < 0 else 'pos' }}">{{ diff|money }}</span>
+{% else %}<span class="muted">–</span>{% endif %}
+{% endmacro %}
+
+{% macro chart(id, spec, height=280, label='Chart') %}
+<div class="chart" style="height: {{ height }}px">
+  <canvas data-chart="{{ id }}" role="img" aria-label="{{ label }}"></canvas>
+</div>
+<script type="application/json" id="{{ id }}">{{ chart_json(spec)|safe }}</script>
+{% endmacro %}
+
+{% macro category_data(categories) %}
+<script type="application/json" id="category-data">{{ categories|tojson }}</script>
+{% endmacro %}

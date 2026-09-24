@@ -1,0 +1,115 @@
+{% extends "base.html" %}
+{% from "_macros.html" import chart %}
+{% block title %}Forecast{% endblock %}
+{% block content %}
+<div class="page-head"><h1>Forecast</h1><span class="muted">{{ months[0].strftime('%b %Y') }} – {{ months[-1].strftime('%b %Y') }}</span></div>
+<details class="note">
+  <summary>How the forecast works</summary>
+  <p>Each future month = <strong>recurring items</strong> scheduled in that month + <strong>planned purchases</strong> dated in that month +
+  your <strong>typical spending</strong>: the average of each category over the last {{ window }} full months, not counting recurring, planned or one-off entries.
+  The current month combines what you’ve actually spent so far with the expected rest of the month. Overdue planned items are counted in the current month.</p>
+</details>
+
+<section class="card"><h2>Monthly outlook</h2>{{ chart('chart-monthly', charts.monthly, 320, 'Forecast spending by month') }}</section>
+
+<section class="card">
+  <h2>{{ 'Projected bank & cash balance' if start_balance is not none else 'Cumulative projected savings' }}</h2>
+  {% if start_balance is not none %}<p class="hint">Starts from your latest bank and cash values ({{ start_balance|money(false) }}) on the <a href="/assets">Assets</a> page.</p>
+  {% else %}<p class="hint">Add bank/cash accounts on the <a href="/assets">Assets</a> page to project an actual balance.</p>{% endif %}
+  {{ chart('chart-balance', charts.balance, 240, 'Projected balance') }}
+</section>
+
+<section class="card">
+  <h2>Month by month</h2>
+  <div class="table-wrap">
+  <table class="report">
+    <thead><tr><th>Month</th><th class="num">Income</th><th class="num">Recurring</th><th class="num">Typical</th><th class="num">Planned</th><th class="num">Spent so far</th><th class="num">Total spend</th><th class="num">Budget</th><th class="num">Net</th>
+      {% if start_balance is not none %}<th class="num">Balance</th>{% endif %}</tr></thead>
+    <tbody>
+      {% for r in rows %}
+      <tr{% if r.current %} class="current"{% endif %}>
+        <th scope="row">{{ r.month.strftime('%b %Y') }}{{ ' (now)' if r.current }}</th>
+        <td class="num pos">{{ r.income|money(false) }}</td>
+        <td class="num">{{ r.parts.recurring|default(0)|money(false) }}</td>
+        <td class="num">{{ r.parts.variable|default(0)|money(false) }}</td>
+        <td class="num">{{ r.parts.planned|default(0)|money(false) }}</td>
+        <td class="num">{{ r.parts.actual|default(0)|money(false) }}</td>
+        <td class="num"><strong>{{ r.spend|money(false) }}</strong></td>
+        <td class="num {{ 'neg' if r.budget and r.spend > r.budget }}">{{ r.budget|money(false) }}</td>
+        <td class="num {{ 'neg' if r.net < 0 }}">{{ r.net|money(false) }}</td>
+        {% if start_balance is not none %}<td class="num {{ 'neg' if r.balance < 0 }}">{{ r.balance|money(false) }}</td>{% endif %}
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<section class="card">
+  <h2>Budget years: projected vs budget</h2>
+  <p class="hint">{{ fy_label(this_fy) }} projection = actual for months already closed + forecast for the rest.</p>
+  {% for title, rows, totals, kind in [('Expenses', expense_rows, expense_totals, 'expense'), ('Income', income_rows, income_totals, 'income')] %}
+  {% if rows %}
+  <div class="table-wrap">
+  <table class="report">
+    <thead>
+      <tr><th rowspan="2">{{ title }}</th><th colspan="3" class="center">{{ fy_label(this_fy) }}</th><th colspan="3" class="center">{{ fy_label(next_fy) }}</th></tr>
+      <tr><th class="num">Budget</th><th class="num">Projected</th><th class="num">Diff</th><th class="num">Budget</th><th class="num">Projected</th><th class="num">Diff</th></tr>
+    </thead>
+    {% for r in rows %}
+    <tbody class="group">
+    {% for line in [r] + r.children %}
+      {% set v = line.vals %}
+      <tr class="{{ 'top' if loop.first else 'sub' }}"{{ ' hidden' if not loop.first }}>
+        <th scope="row">{% if loop.first and r.children %}<button type="button" class="expander" data-expand aria-expanded="false">{{ line.cat.name }}</button>{% else %}{{ line.cat.name }}{{ ' (general)' if line.own }}{% endif %}</th>
+        {% for pre in ['this', 'next'] %}
+          {% set b, p = v[pre ~ '_budget'], v[pre ~ '_projected'] %}
+          {% set d = (p - b) if kind == 'income' else (b - p) %}
+          <td class="num">{{ b|money(false) }}</td><td class="num">{{ p|money(false) }}</td>
+          <td class="num {{ 'neg' if b and d < 0 else ('pos' if b else 'muted') }}">{{ d|money(false) if b else '–' }}</td>
+        {% endfor %}
+      </tr>
+    {% endfor %}
+    </tbody>
+    {% endfor %}
+    <tfoot><tr><th scope="row">Total</th>
+      {% for pre in ['this', 'next'] %}
+        {% set b, p = totals[pre ~ '_budget'], totals[pre ~ '_projected'] %}
+        {% set d = (p - b) if kind == 'income' else (b - p) %}
+        <td class="num">{{ b|money(false) }}</td><td class="num">{{ p|money(false) }}</td>
+        <td class="num {{ 'neg' if b and d < 0 else 'pos' }}">{{ d|money(false) if b else '–' }}</td>
+      {% endfor %}</tr></tfoot>
+  </table>
+  </div>
+  {% endif %}
+  {% endfor %}
+</section>
+
+{% if matrix_rows %}
+<section class="card">
+  <h2>Spending forecast by category</h2>
+  <div class="table-wrap">
+  <table class="report matrix">
+    <thead><tr><th>Category</th>{% for m in months %}<th class="num">{{ m.strftime('%b %y') }}</th>{% endfor %}</tr></thead>
+    <tbody>
+      {% for r in matrix_rows %}
+      <tr><th scope="row">{{ r.cat.name }}</th>{% for v in r.vals %}<td class="num">{{ v|money(false) }}</td>{% endfor %}</tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</section>
+{% endif %}
+
+<section class="card">
+  <div class="card-head"><h2>Planned purchases in the forecast</h2><a href="/planned">Manage →</a></div>
+  {% if planned %}
+  <ul class="list">
+    {% for p in planned %}
+    <li><span class="date{{ ' neg' if p.date < today }}">{{ p.date.strftime('%b %Y') }}</span><span class="grow">{{ p.name }} <small class="muted">{{ p.category.full_name }}</small></span><span class="num">{{ p.amount|money(false) }}</span></li>
+    {% endfor %}
+  </ul>
+  {% else %}<p class="empty">No planned purchases. Add big future expenses like a new car or roof repair on the <a href="/planned">Planned</a> page.</p>{% endif %}
+</section>
+{% endblock %}
+{% block scripts %}<script src="/static/vendor/chart.umd.min.js"></script>{% endblock %}

@@ -1,0 +1,58 @@
+{# Expects: rows, totals, columns, title, kind #}
+{% from "_macros.html" import progress, variance %}
+{% set has_budget = 'budget' in columns %}
+{% set has_proj = 'projected' in columns %}
+<div class="table-wrap">
+<table class="report">
+  <thead>
+    <tr>
+      <th>{{ title }}</th>
+      {% if has_budget %}<th class="num">Budget</th>{% endif %}
+      <th class="num">Actual</th>
+      {% if has_proj %}<th class="num">Projected</th>{% endif %}
+      {% if has_budget %}<th class="num">{{ 'Left' if kind == 'expense' else 'vs budget' }}</th><th class="bar-col"></th>{% endif %}
+    </tr>
+  </thead>
+  {% for r in rows %}
+  <tbody class="group">
+    <tr class="top">
+      <th scope="row">{% if r.children %}<button type="button" class="expander" data-expand aria-expanded="false">{{ r.cat.name }}</button>{% else %}{{ r.cat.name }}{% endif %}</th>
+      {% if has_budget %}<td class="num">{{ r.vals.budget|money(false) }}</td>{% endif %}
+      <td class="num">{{ r.vals.actual|money(false) }}</td>
+      {% if has_proj %}<td class="num">{{ r.vals.projected|money(false) }}</td>{% endif %}
+      {% if has_budget %}
+        {% set used = r.vals.projected if has_proj else r.vals.actual %}
+        <td class="num">{{ variance(r.vals.budget, used, kind == 'income') }}</td>
+        <td class="bar-col">{% if kind == 'expense' %}{{ progress(r.vals.actual, r.vals.budget, r.vals.projected if has_proj else None) }}{% endif %}</td>
+      {% endif %}
+    </tr>
+    {% for c in r.children %}
+    <tr class="sub" hidden>
+      <th scope="row">{{ c.cat.name }}{{ ' (general)' if c.own }}</th>
+      {% if has_budget %}<td class="num">{{ c.vals.budget|money(false) }}</td>{% endif %}
+      <td class="num">{{ c.vals.actual|money(false) }}</td>
+      {% if has_proj %}<td class="num">{{ c.vals.projected|money(false) }}</td>{% endif %}
+      {% if has_budget %}
+        {% set used = c.vals.projected if has_proj else c.vals.actual %}
+        <td class="num">{{ variance(c.vals.budget, used, kind == 'income') }}</td>
+        <td class="bar-col"></td>
+      {% endif %}
+    </tr>
+    {% endfor %}
+  </tbody>
+  {% endfor %}
+  <tfoot>
+    <tr>
+      <th scope="row">Total</th>
+      {% if has_budget %}<td class="num">{{ totals.budget|money(false) }}</td>{% endif %}
+      <td class="num">{{ totals.actual|money(false) }}</td>
+      {% if has_proj %}<td class="num">{{ totals.projected|money(false) }}</td>{% endif %}
+      {% if has_budget %}
+        {% set used = totals.projected if has_proj else totals.actual %}
+        <td class="num">{{ variance(totals.budget, used, kind == 'income') }}</td>
+        <td class="bar-col"></td>
+      {% endif %}
+    </tr>
+  </tfoot>
+</table>
+</div>

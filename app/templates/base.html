@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#0f766e">
+<title>{% block title %}Budget{% endblock %} · Budget</title>
+<link rel="icon" href="/static/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="/"><img src="/static/icon.svg" alt="" width="24" height="24">Budget</a>
+  <nav class="nav" aria-label="Main">
+    {% set path = request.url.path %}
+    {% for href, label in NAV %}
+      {% set on = (href == '/' and path == '/') or (href != '/' and path.startswith(href)) %}
+      <a href="{{ href }}"{% if on %} class="active" aria-current="page"{% endif %}>{{ label }}</a>
+    {% endfor %}
+  </nav>
+</header>
+<main class="page">
+  {% set msg = request.query_params.get('msg') %}
+  {% if msg %}
+  <div class="flash{{ ' error' if request.query_params.get('error') }}" role="status">
+    <span>{{ msg }}</span>
+    {% set undo = request.query_params.get('undo') %}
+    {% if undo %}
+    <form method="post" action="/entries/{{ undo }}/delete">
+      <input type="hidden" name="next" value="{{ request.url.path }}">
+      <button class="link">Undo</button>
+    </form>
+    {% endif %}
+    <button class="flash-close" type="button" aria-label="Dismiss" data-dismiss>&times;</button>
+  </div>
+  {% endif %}
+  {% block content %}{% endblock %}
+</main>
+{% block scripts %}{% endblock %}
+<script src="/static/app.js"></script>
+</body>
+</html>
