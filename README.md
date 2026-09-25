@@ -149,6 +149,32 @@ python -m venv .venv
 .venv/Scripts/python -m pytest
 ```
 
+## Ideas for the next release
+
+### 1. Receipts and invoices: photo upload and OCR
+- Attach photos or PDFs to any entry or planned item. Big purchases would carry their invoice, warranty card and serial number, e.g. appliances, electronics, the car or the roof.
+- Read receipts automatically (OCR) to fill in the amount, date and store. You would only confirm the result.
+- Add **warranty tracking**: a warranty end date on an item, a list of items still under warranty, and a reminder on the Home page before a warranty runs out.
+- Search receipts by store, amount or text.
+- *Implementation notes:* files would be stored on the box in a volume next to the database and included in the nightly backup. OCR would run locally, e.g. Tesseract or PaddleOCR in a separate container, so receipts never leave the house. Phones can take a photo directly from the upload field.
+
+### 2. AI forecasting and recommendations
+- Smarter forecasts than a plain 6-month average: they would account for seasonality (heating in winter, travel in summer), trends and irregular annual costs.
+- Written recommendations, e.g. “Restaurants are 40% over budget for 3 months in a row”, “Your subscriptions went up $28/month since spring”, or “At this pace you'll be $1,200 short for the roof in May”.
+- Detection of unusual entries, such as duplicates, typos (like $850 instead of $85.00) and one-off spikes.
+- Suggested budgets for the next budget year, based on history and planned purchases.
+- Questions in plain language: “How much did we spend on the kids last year?”
+- *Implementation notes:* the statistical part (seasonality, anomalies) can run locally in Python. For written recommendations and questions, a **local model** (e.g. via Ollama on the box) keeps all data private. A cloud AI API would be more capable but would send financial data out of the house. That should be an explicit opt-in, sending only summarized numbers.
+
+### 3. Overall wealth tracker with forecasts
+- Project net worth years ahead, not just the next budget year.
+- Expected growth rate per asset (investments, property) and depreciation (vehicles).
+- Regular contributions (RRSP, TFSA, RESP, savings), linked to the monthly budget surplus.
+- Loan and mortgage amortization: interest rate, payment and term give the payoff date and the interest paid, with a “what if I pay $200 more” comparison.
+- Scenarios such as buying a car in 2027, changing jobs or retiring at 60, compared side by side.
+- Goals like an emergency fund, down payment or retirement target, with progress and a projected date for reaching each.
+- Canadian specifics such as TFSA/RRSP contribution room and RESP grants (CESG).
+
 ## Project layout
 
 ```
