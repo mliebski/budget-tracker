@@ -14,32 +14,49 @@ A private budgeting and forecasting tool for your home network. It runs on a sma
 
 ---
 
-## 1. Set up the new box
+## 1. Put the code on GitHub (one time, on your Windows PC)
+
+The code is kept in a **private** GitHub repository, and the box downloads it from there. Only the program code goes to GitHub. Your financial data stays in the database on the box, and `.env` (passwords) and `backups/` are excluded by `.gitignore`.
+
+1. On github.com, create a new repository named `budget-tracker`. Set it to **Private**, and don't add a README, .gitignore or license (the project already has them).
+2. In PowerShell, in the `budget-tracker` folder (replace `YOUR-GITHUB-NAME`):
+   ```powershell
+   git remote add origin https://github.com/YOUR-GITHUB-NAME/budget-tracker.git
+   git push -u origin main
+   ```
+   The first push opens a browser window to sign in to GitHub.
+
+## 2. Set up the new box
 
 Any small PC or Raspberry Pi 4/5 is enough. These steps assume **Ubuntu Server 24.04 LTS** (Debian 12 and Raspberry Pi OS work the same way).
 
 1. **Install Ubuntu Server** and tick *Install OpenSSH server* during setup.
 2. **Give the box a fixed address.** In your router's admin page, create a *DHCP reservation* (sometimes called “static lease”) for the box, e.g. `192.168.1.50`. Do **not** create any port forwarding for it; that keeps it off the internet.
-3. **Copy the project to the box.** From Windows (PowerShell, in the folder that contains `budget-tracker`):
-   ```powershell
-   tar --exclude=.venv --exclude=__pycache__ -czf budget-tracker.tgz budget-tracker
-   scp budget-tracker.tgz youruser@192.168.1.50:~
-   ```
-   Then on the box (`ssh youruser@192.168.1.50`):
+3. **Give the box read-only access to the repository.** Log in to the box (`ssh youruser@192.168.1.50`) and create a key that is used only for this:
    ```bash
-   tar -xzf budget-tracker.tgz && cd budget-tracker
+   sudo apt-get install -y git
+   ssh-keygen -t ed25519 -f ~/.ssh/budget_deploy -N "" -C "budget box"
+   printf 'Host github.com\n  IdentityFile ~/.ssh/budget_deploy\n  IdentitiesOnly yes\n' >> ~/.ssh/config
+   cat ~/.ssh/budget_deploy.pub
    ```
-4. **Install Docker** (one time):
+   On GitHub, open the repository → **Settings → Deploy keys → Add deploy key**. Paste the line printed by `cat`, name it “budget box”, and leave *Allow write access* **unticked**. The box can then download the code but can't change it, and the key gives no access to your other repositories.
+4. **Download the code:**
+   ```bash
+   git clone git@github.com:YOUR-GITHUB-NAME/budget-tracker.git
+   cd budget-tracker
+   ```
+   Answer `yes` when asked to trust github.com's fingerprint.
+5. **Install Docker** (one time):
    ```bash
    bash scripts/install-docker.sh
    ```
    Log out and back in afterwards, so your user can run `docker` without `sudo`.
-5. **Start the app:**
+6. **Start the app:**
    ```bash
    bash scripts/setup.sh
    ```
    This creates `.env` with random database passwords and your time zone, builds the app and starts three containers: the web app, MariaDB, and the backup job. It prints the address to open, e.g. `http://192.168.1.50:8000`.
-6. **Optional but recommended: firewall.** Allow only your home network (adjust the subnet to match your router, often `192.168.0.0/24` or `192.168.1.0/24`):
+7. **Optional but recommended: firewall.** Allow only your home network (adjust the subnet to match your router, often `192.168.0.0/24` or `192.168.1.0/24`):
    ```bash
    sudo ufw allow OpenSSH
    sudo ufw allow from 192.168.1.0/24 to any port 8000 proto tcp
@@ -51,7 +68,7 @@ The containers restart automatically after a reboot or power cut.
 
 **Tip:** on your phone, open the address and use *Add to Home Screen*. The app then works like a phone app.
 
-## 2. First steps in the app
+## 3. First steps in the app
 
 1. **Categories**: a starter set is created on first start. Rename, hide or add categories to match your household.
 2. **Recurring**: add your pay cheque(s), rent/mortgage, utilities, phone, subscriptions and insurance.
@@ -60,7 +77,7 @@ The containers restart automatically after a reboot or power cut.
 5. **Planned**: add known big future expenses.
 6. After that it's mostly **Quick add** on the Home page.
 
-## 3. How the numbers are calculated
+## 4. How the numbers are calculated
 
 - **Budget year**: October–September. “FY 2025–26” runs from 1 Oct 2025 to 30 Sep 2026. Fiscal Q1 is Oct–Dec.
 - **Month budget** = monthly amount + yearly amount ÷ 12 (if spread) or the full yearly amount in its due month. A main category's budget is the sum of its own line and its subcategories.
@@ -69,7 +86,7 @@ The containers restart automatically after a reboot or power cut.
 - **Projected year** = actual for months already closed + forecast for the rest.
 - **Projected bank & cash balance** starts from the latest values of your *Bank account* and *Cash* assets.
 
-## 4. Backups and restore
+## 5. Backups and restore
 
 - A dump of the database is written every night at `BACKUP_TIME` (default 02:30) to `BACKUP_PATH` (default `./backups` in the project folder) and kept for `BACKUP_KEEP_DAYS` days. The Settings page lists the latest files.
 - **Point `BACKUP_PATH` at a different disk** (USB drive or NAS mount) in `.env`, then run `docker compose up -d`. A backup on the same disk won't survive a disk failure.
@@ -83,17 +100,35 @@ The containers restart automatically after a reboot or power cut.
   gunzip -c backups/budget-2026-09-24_0230.sql.gz | docker compose exec -T db mariadb -u budget -p"$DB_PASSWORD" budget
   ```
 
-## 5. Updating
+## 6. Updating
 
-Copy the new version over the old folder, keeping your `.env` and `backups`, then run:
+Changes are made on your Windows PC, committed and pushed to GitHub:
+
+```powershell
+git add -A
+git commit -m "Describe the change"
+git push
+```
+
+Then on the box, in the `budget-tracker` folder:
 
 ```bash
+bash scripts/update.sh
+```
+
+This takes a database backup, downloads the latest code (`git pull`) and rebuilds and restarts the app. Your data lives in the Docker volume `db_data`, and `.env` and `backups/` are never touched by git.
+
+To go back to an earlier version if an update causes trouble:
+
+```bash
+git log --oneline                # find the version you want
+git checkout <commit-id>
 docker compose up -d --build
 ```
 
-Your data lives in the Docker volume `db_data` and is not affected. Take a backup first to be safe.
+Run `git checkout main` and `bash scripts/update.sh` to return to the latest version.
 
-## 6. Everyday commands
+## 7. Everyday commands
 
 ```bash
 docker compose ps                 # status of the containers
@@ -103,7 +138,7 @@ docker compose restart app        # restart the web app
 docker compose down               # stop everything (data is kept)
 ```
 
-## 7. Local development (Windows/Mac/Linux)
+## 8. Local development (Windows/Mac/Linux)
 
 The app also runs on SQLite, so no database server is needed for development:
 
@@ -128,7 +163,7 @@ app/
   templates/       HTML (Jinja2)
   static/          CSS, JS, Chart.js (bundled; no internet needed)
 backup/backup.sh   nightly dump job (runs in the backup container)
-scripts/           Docker install and first-time setup
+scripts/           Docker install, first-time setup, updates
 tests/             pytest suite
 ```
 
