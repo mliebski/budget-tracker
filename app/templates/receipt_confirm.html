@@ -32,7 +32,7 @@
       </ul>
     </div>
     {% endif %}
-    <form method="post" action="/receipts/{{ att.id }}/confirm" data-entry-form>
+    <form method="post" action="/receipts/{{ att.id }}/confirm" data-entry-form data-warranty-oneoff>
       {{ entry_fields(categories, tags, entry=entry, recent_categories=recent_categories, autofocus=not entry.amount) }}
       <details class="more">
         <summary>Add warranty or serial number</summary>

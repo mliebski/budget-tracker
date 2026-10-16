@@ -86,16 +86,23 @@ def warranty_save(iid: str = Form(""), name: str = Form(""), store: str = Form("
                   db: Session = Depends(get_db)):
     item = db.get(Item, parse_int(iid)) if parse_int(iid) else None
     is_new = item is None
+    one_off_set = False
     item = item_from_form(db, item, name=name, store=store, serial_number=serial_number,
                           purchase_date=purchase_date, price=price, warranty_end=warranty_end, note=note)
     if is_new:
-        if parse_int(transaction_id) and db.get(Transaction, parse_int(transaction_id)):
-            item.transaction_id = parse_int(transaction_id)
+        entry = db.get(Transaction, parse_int(transaction_id)) if parse_int(transaction_id) else None
+        if entry:
+            item.transaction_id = entry.id
+            if not entry.one_off and not entry.recurring_id:
+                entry.one_off = True  # big purchase: keep it out of the forecast average
+                one_off_set = True
         if parse_int(planned_id) and db.get(Planned, parse_int(planned_id)):
             item.planned_id = parse_int(planned_id)
     db.commit()
     return redirect(f"/warranties/{item.id}", msg=f"Saved “{item.name}”."
-                    + (" Add the warranty card or manual below." if is_new else ""))
+                    + (" Add the warranty card or manual below." if is_new else "")
+                    + (" The entry is now marked one-off, so it stays out of the forecast average."
+                       if one_off_set else ""))
 
 
 @router.post("/warranties/{iid}/delete")

@@ -106,6 +106,20 @@
       }));
   });
 
+  // A purchase with a warranty is a big one: pre-tick "one-off" so it stays out of the forecast average.
+  document.querySelectorAll("form[data-warranty-oneoff]").forEach((form) => {
+    const oneOff = form.querySelector('input[name="one_off"]');
+    const fields = form.querySelectorAll('[data-warranty-end], input[name="serial_number"]');
+    const sync = () => {
+      if (!oneOff || oneOff.dataset.touched) return;
+      oneOff.checked = Array.from(fields).some((f) => f.value.trim());
+      if (oneOff.checked) oneOff.closest("details").open = true;
+    };
+    oneOff.addEventListener("change", () => { oneOff.dataset.touched = "1"; });
+    fields.forEach((f) => f.addEventListener("input", sync));
+    form.querySelectorAll("[data-years]").forEach((b) => b.addEventListener("click", sync));
+  });
+
   // --- Budget form: live yearly totals ------------------------------------------------
   const budgetForm = document.querySelector("form[data-budget-form]");
   if (budgetForm) {

@@ -321,3 +321,14 @@ def test_ocr_server_falls_back_to_tesseract_for_scanned_pdfs(monkeypatch, tmp_pa
     monkeypatch.setattr(server, "run", fake_run)
     assert server.read_pdf(tmp_path / "in.pdf", tmp_path) == "TOTAL 12.00\n"
     assert calls == ["pdftotext", "pdftoppm", "tesseract"]
+
+
+def test_warranty_on_entry_marks_it_one_off(client, db):
+    client.post("/entries", data={"amount": "1299", "category_id": cat_id(db, "Groceries"), "note": "Dishwasher"})
+    t = db.scalar(select(Transaction))
+    assert not t.one_off
+    r = client.post("/warranties", data={"name": "Dishwasher", "warranty_end": "2028-10-11",
+                                         "transaction_id": t.id}, follow_redirects=False)
+    assert "one-off" in r.headers["location"].replace("%20", " ")
+    db.expire_all()
+    assert db.get(Transaction, t.id).one_off
