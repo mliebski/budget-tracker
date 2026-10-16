@@ -5,9 +5,10 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, Form, Request
 from sqlalchemy.orm import Session
 
+from .. import files, ocr
 from ..db import engine
 from ..fiscal import FY_START_MONTH
-from ..services import avg_window, set_setting
+from ..services import avg_window, set_setting, warranty_days
 from ..web import UserError, get_db, redirect, render
 
 router = APIRouter()
@@ -25,15 +26,20 @@ def _backups() -> list[dict]:
 
 @router.get("/settings")
 def settings_page(request: Request, db: Session = Depends(get_db)):
-    return render(request, "settings.html", window=avg_window(db), backups=_backups(),
+    return render(request, "settings.html", window=avg_window(db), warranty_days=warranty_days(db),
+                  ocr_status=ocr.status(), storage=files.usage(),
+                  files_backed_up=(BACKUP_DIR / "files").is_dir(), backups=_backups(),
                   backup_dir=str(BACKUP_DIR), backup_enabled=BACKUP_DIR.is_dir(),
                   database=engine.url.get_backend_name(), fy_start_month=FY_START_MONTH)
 
 
 @router.post("/settings")
-def settings_save(avg_months: int = Form(6), db: Session = Depends(get_db)):
+def settings_save(avg_months: int = Form(6), warranty_days: int = Form(60), db: Session = Depends(get_db)):
     if not 1 <= avg_months <= 24:
         raise UserError("The averaging window must be between 1 and 24 months.")
+    if not 0 <= warranty_days <= 365:
+        raise UserError("The warranty reminder must be between 0 and 365 days.")
     set_setting(db, "avg_months", str(avg_months))
+    set_setting(db, "warranty_days", str(warranty_days))
     db.commit()
     return redirect("/settings", msg="Settings saved.")

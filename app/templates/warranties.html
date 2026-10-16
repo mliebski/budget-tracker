@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% from "_files.html" import receipt_tabs %}
+{% block title %}Warranties{% endblock %}
+
+{% block content %}
+{% macro item_row(i) %}
+{% set left = i.days_left(today) %}
+<li>
+  <a href="/warranties/{{ i.id }}" class="grow">{{ i.name }}
+    <small class="muted block">{{ [i.store, i.purchase_date.strftime('bought %d %b %Y') if i.purchase_date, 'S/N ' ~ i.serial_number if i.serial_number]|select|join(' · ') }}
+      {% if i.attachments %} · 📎 {{ i.attachments|length }}{% endif %}</small></a>
+  {% if left is not none %}
+  <span class="num">{{ i.warranty_end.strftime('%d %b %Y') }}
+    <small class="block {{ 'neg' if 0 <= left <= days else 'muted' }}">{% if left < 0 %}ended {{ -left }} days ago{% elif left == 0 %}ends today{% else %}{{ left }} days left{% endif %}</small></span>
+  {% endif %}
+</li>
+{% endmacro %}
+<div class="page-head"><h1>Warranties</h1>{{ receipt_tabs('warranties') }}</div>
+<div class="toolbar">
+  <p class="hint">Things you own with their warranty end date, serial number, receipt and manual. Warranties ending within {{ days }} days are shown on the Home page.</p>
+  <a class="btn primary" href="/warranties/new">+ Add item</a>
+</div>
+
+{% if groups.soon %}
+<section class="card"><h2 class="neg">Ending soon</h2><ul class="list">{% for i in groups.soon %}{{ item_row(i) }}{% endfor %}</ul></section>
+{% endif %}
+
+<section class="card">
+  <h2>Under warranty</h2>
+  {% if groups.active %}<ul class="list">{% for i in groups.active %}{{ item_row(i) }}{% endfor %}</ul>
+  {% elif not groups.soon %}<p class="empty">Nothing yet. Add a warranty when you save a scanned receipt, from an entry, or with <a href="/warranties/new">+ Add item</a>.</p>{% endif %}
+</section>
+
+{% if groups.none %}
+<section class="card"><h2>Serial numbers, no warranty date</h2><ul class="list">{% for i in groups.none %}{{ item_row(i) }}{% endfor %}</ul></section>
+{% endif %}
+
+{% if groups.expired %}
+<details class="card">
+  <summary><strong>Expired</strong> <span class="muted">({{ groups.expired|length }})</span></summary>
+  <ul class="list">{% for i in groups.expired %}{{ item_row(i) }}{% endfor %}</ul>
+</details>
+{% endif %}
+{% endblock %}

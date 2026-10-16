@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% from "_macros.html" import entry_fields, category_data %}
+{% from "_files.html" import warranty_years %}
+{% block title %}Check receipt{% endblock %}
+{% block content %}
+<div class="page-head"><h1>Check the receipt</h1><a href="/receipts">Do it later</a></div>
+{% if att.ocr_status == 'done' and att.amount %}
+<p class="hint">Read automatically. Check the amount, date and category, then save.</p>
+{% elif att.ocr_status == 'failed' %}
+<p class="note">The receipt couldn't be read automatically. Please type the details; the photo is still saved with the entry.</p>
+{% elif not ocr_enabled %}
+<p class="note">Automatic reading (OCR) is switched off on this server. Please type the details; the photo is saved with the entry.</p>
+{% else %}
+<p class="note">No total was found on this receipt. Please type the amount.</p>
+{% endif %}
+
+<div class="grid two">
+  <section class="card">
+    {% if matches %}
+    <div class="note">
+      <strong>Already entered?</strong> Attach the receipt to the existing entry instead of adding a new one:
+      <ul class="list">
+        {% for e in matches %}
+        <li>
+          <span class="date">{{ e.date.strftime('%d %b') }}</span>
+          <span class="grow">{{ e.category.full_name }}{% if e.note %} <small class="muted">{{ e.note }}</small>{% endif %}</span>
+          <span class="num">{{ e.amount|money }}</span>
+          <form method="post" action="/receipts/{{ att.id }}/attach">
+            <input type="hidden" name="transaction_id" value="{{ e.id }}"><button class="btn small">Attach</button></form>
+        </li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% endif %}
+    <form method="post" action="/receipts/{{ att.id }}/confirm" data-entry-form>
+      {{ entry_fields(categories, tags, entry=entry, recent_categories=recent_categories, autofocus=not entry.amount) }}
+      <details class="more">
+        <summary>Add warranty or serial number</summary>
+        <label class="field"><span>Item</span><input name="item_name" maxlength="100" placeholder="e.g. Dishwasher (default: the note)"></label>
+        <label class="field"><span>Warranty ends</span><input type="date" name="warranty_end" data-warranty-end></label>
+        {{ warranty_years() }}
+        <label class="field"><span>Serial number</span><input name="serial_number" maxlength="100" autocomplete="off"></label>
+      </details>
+      <button class="btn primary block">Save entry with receipt</button>
+    </form>
+    <form method="post" action="/attachments/{{ att.id }}/delete" data-confirm="Delete this receipt photo?" class="danger-zone">
+      <input type="hidden" name="next" value="/"><button class="btn danger small">Discard receipt</button>
+    </form>
+  </section>
+
+  <section class="card receipt-view">
+    <a href="/files/{{ att.id }}" target="_blank" rel="noopener">
+      {% if att.is_pdf %}<span class="file-icon big">PDF · open</span>{% else %}<img src="/files/{{ att.id }}" alt="Receipt photo">{% endif %}
+    </a>
+    {% if att.ocr_text %}
+    <details class="more"><summary>Text read from the receipt</summary><pre class="ocr-text">{{ att.ocr_text }}</pre></details>
+    {% endif %}
+  </section>
+</div>
+{{ category_data(categories) }}
+{% endblock %}

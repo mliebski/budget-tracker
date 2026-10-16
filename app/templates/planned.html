@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "_macros.html" import kind_toggle, category_select, category_data %}
+{% from "_files.html" import file_grid, upload_form %}
 {% block title %}Planned{% endblock %}
 {% block content %}
 <div class="page-head"><h1>Planned purchases</h1></div>
@@ -22,6 +23,14 @@
       <button class="btn primary block">{{ 'Save' if p else 'Add to plan' }}</button>
       {% if p %}<a class="btn block" href="/planned">Cancel</a>{% endif %}
     </form>
+    {% if p %}
+    <h3>Quotes &amp; documents</h3>
+    {% if attachments %}{{ file_grid(attachments, '/planned?edit=' ~ p.id) }}{% endif %}
+    {{ upload_form('planned_id', p.id, '/planned?edit=' ~ p.id, 'invoice') }}
+    <p class="hint">{% if items %}Warranty: {% for i in items %}<a href="/warranties/{{ i.id }}">{{ i.name }}</a>{{ ', ' if not loop.last }}{% endfor %}.
+      {% else %}<a href="/warranties/new?planned={{ p.id }}">+ Add warranty or serial number</a>{% endif %}
+      Files and warranty move to the entry when you record it as paid.</p>
+    {% endif %}
   </section>
 
   <section class="card">
@@ -32,7 +41,7 @@
       <li>
         <div class="grow">
           <a href="/planned?edit={{ p.id }}">{{ p.name }}</a>
-          <small class="muted block">{{ p.date.strftime('%d %b %Y') }} · {{ p.category.full_name }}{{ ' · ' ~ p.note if p.note }}</small>
+          <small class="muted block">{{ p.date.strftime('%d %b %Y') }} · {{ p.category.full_name }}{{ ' · ' ~ p.note if p.note }}{% if file_counts.get(p.id) %} · 📎 {{ file_counts[p.id] }}{% endif %}</small>
           {% if p.date < today %}<small class="neg">Overdue: counted in this month’s forecast</small>{% endif %}
         </div>
         <span class="num {{ 'pos' if p.category.kind == 'income' }}">{{ p.amount|money }}</span>

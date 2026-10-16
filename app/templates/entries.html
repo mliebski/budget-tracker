@@ -54,6 +54,7 @@
         {% if e.note and e.note != e.category.name %}<small class="muted">{{ e.note }}</small>{% endif %}
         {% if e.recurring_id %}<span class="badge">recurring</span>{% endif %}
         {% if e.one_off %}<span class="badge">one-off</span>{% endif %}
+        {% if e.id in with_files %}<span class="badge" title="Has a receipt or document">📎</span>{% endif %}
         {% for t in e.tags %}<span class="tag">{{ t.name }}</span>{% endfor %}
       </a>
       <span class="num {{ 'pos' if e.kind == 'income' }}">{{ '+' if e.kind == 'income' }}{{ e.amount|money }}</span>

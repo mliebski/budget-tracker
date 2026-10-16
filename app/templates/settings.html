@@ -8,13 +8,27 @@
     <label class="field"><span>Typical spending = average of the last … months</span>
       <input type="number" name="avg_months" min="1" max="24" value="{{ window }}"></label>
     <p class="hint">Used to forecast variable spending (groceries, fuel, eating out). Recurring, planned and one-off entries are excluded.</p>
+    <h2>Warranties</h2>
+    <label class="field"><span>Show warranties on the Home page … days before they end</span>
+      <input type="number" name="warranty_days" min="0" max="365" value="{{ warranty_days }}"></label>
     <button class="btn primary">Save</button>
   </form>
 
   <section class="card">
+    <h2>Receipts &amp; OCR</h2>
+    <ul class="list">
+      <li><span class="grow">Receipt reading (OCR)</span><span class="{{ 'pos' if ocr_status.ok else 'neg' }}">{{ 'Working' if ocr_status.ok else 'Off' }}</span></li>
+      <li><span class="grow muted">{{ ocr_status.detail }}</span></li>
+      <li><span class="grow">Stored files</span><span>{{ storage.count }} · {% if storage.size < 1048576 %}{{ (storage.size / 1024)|round|int }} KB{% else %}{{ (storage.size / 1048576)|round(1) }} MB{% endif %}</span></li>
+    </ul>
+    <p class="hint">Receipts are read on this server; photos and text never leave your home network.</p>
+  </section>
+
+  <section class="card">
     <h2>Backups</h2>
     {% if backup_enabled %}
-      <p>Nightly backups are written to <code>{{ backup_dir }}</code> on the server.</p>
+      <p>Nightly backups are written to <code>{{ backup_dir }}</code> on the server.
+        {% if files_backed_up %}Receipts and documents are copied to <code>{{ backup_dir }}/files</code>.{% else %}Receipts and documents are copied to <code>files/</code> there after the first nightly run.{% endif %}</p>
       {% if backups %}
       <ul class="list">{% for b in backups %}<li><span class="grow">{{ b.name }}</span><small class="muted">{{ b.when.strftime('%d %b %Y %H:%M') }} · {{ (b.size / 1024)|round(1) }} KB</small></li>{% endfor %}</ul>
       {% else %}<p class="empty">No backup files yet. The first one is written tonight.</p>{% endif %}

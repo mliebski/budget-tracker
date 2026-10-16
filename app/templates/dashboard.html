@@ -1,10 +1,12 @@
 {% extends "base.html" %}
 {% from "_macros.html" import entry_fields, progress, category_data %}
+{% from "_files.html" import scan_buttons %}
 {% block title %}Home{% endblock %}
 {% block content %}
 <div class="grid dash">
   <section class="card quick-add">
     <h2>Quick add</h2>
+    {{ scan_buttons() }}
     <form method="post" action="/entries" data-entry-form>
       {{ entry_fields(categories, tags, recent_categories=recent_categories, today=today, autofocus=True) }}
       <input type="hidden" name="next" value="/">
@@ -75,6 +77,21 @@
     </ul>
     {% else %}<p class="empty">Nothing scheduled. Add <a href="/recurring">recurring items</a> (rent, salary, subscriptions) or <a href="/planned">planned purchases</a>.</p>{% endif %}
   </section>
+
+  {% if warranties %}
+  <section class="card">
+    <div class="card-head"><h2>Warranties ending soon</h2><a href="/warranties">Warranties →</a></div>
+    <ul class="list">
+      {% for i in warranties %}{% set left = i.days_left(today) %}
+      <li>
+        <span class="date neg">{{ i.warranty_end.strftime('%d %b') }}</span>
+        <a href="/warranties/{{ i.id }}" class="grow">{{ i.name }}{% if i.store %} <small class="muted">{{ i.store }}</small>{% endif %}</a>
+        <span class="num neg">{{ 'today' if left == 0 else (left ~ ' day' ~ ('s' if left != 1 else '') ~ ' left') }}</span>
+      </li>
+      {% endfor %}
+    </ul>
+  </section>
+  {% endif %}
 
   <section class="card wide">
     <div class="card-head"><h2>Recently added</h2><a href="/entries">All entries →</a></div>

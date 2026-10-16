@@ -8,7 +8,7 @@ from ..fiscal import fy_months, fy_of, fy_start, month_end, month_start
 from ..models import EXPENSE, INCOME, Tag, Transaction
 from ..services import (
     actual_by_month, budget_by_month, build_rows, category_choices, category_map, forecast,
-    kind_total, recent_categories, sum_months, upcoming,
+    kind_total, recent_categories, sum_months, upcoming, warranties_ending,
 )
 from ..web import get_db, render
 
@@ -60,7 +60,8 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
                              .order_by(Transaction.id.desc()).limit(8)))
     return render(
         request, "dashboard.html", today=today, month=month, year=year, recent=recent,
-        upcoming=upcoming(db, today), categories=category_choices(db),
+        upcoming=upcoming(db, today), warranties=warranties_ending(db, today),
+        categories=category_choices(db),
         recent_categories=recent_categories(db, today),
         tags=list(db.scalars(select(Tag).order_by(Tag.name))),
     )

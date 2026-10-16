@@ -10,7 +10,11 @@ A private budgeting and forecasting tool for your home network. It runs on a sma
 - **Reports**: month, quarter and year, showing budget vs actual vs projected, a breakdown by category, a monthly trend, and a filter by tag.
 - **Forecast**: the rest of this budget year plus the next one, broken down by month and by category, with a projected bank balance.
 - **Assets & net worth**: bank accounts, investments (RRSP/TFSA), property, vehicles, mortgage, loans and credit cards, with a net-worth history.
-- **Nightly database backups**, kept for 30 days by default.
+- **Receipts**: photograph a receipt from the Home page. The store, date and total are read automatically (OCR, English and French) and you only confirm. Attach photos or PDFs (invoices, quotes, warranty cards, manuals) to any entry or planned purchase, and search them by store, amount or text.
+- **Warranties**: warranty end date and serial number for appliances, electronics, the car or the roof, with their documents. Warranties about to run out show up on the Home page.
+- **Nightly backups** of the database (kept for 30 days by default) and of all receipts and documents.
+
+Receipts are read by Tesseract running on the box itself, so photos and their text never leave your home network.
 
 ---
 
@@ -55,7 +59,7 @@ Any small PC or Raspberry Pi 4/5 is enough. These steps assume **Ubuntu Server 2
    ```bash
    bash scripts/setup.sh
    ```
-   This creates `.env` with random database passwords and your time zone, builds the app and starts three containers: the web app, MariaDB, and the backup job. It prints the address to open, e.g. `http://192.168.1.50:8000`.
+   This creates `.env` with random database passwords and your time zone, builds the app and starts four containers: the web app, MariaDB, the receipt reader (OCR) and the backup job. It prints the address to open, e.g. `http://192.168.1.50:8000`.
 7. **Optional but recommended: firewall.** Allow only your home network (adjust the subnet to match your router, often `192.168.0.0/24` or `192.168.1.0/24`):
    ```bash
    sudo ufw allow OpenSSH
@@ -75,7 +79,18 @@ The containers restart automatically after a reboot or power cut.
 3. **Budgets**: enter monthly amounts per category and yearly amounts for once-a-year bills. The *Last year* and *Avg / month* columns help once you have some history. Next year, one click copies the budget forward.
 4. **Assets**: add bank accounts, investments, vehicles and debts with their current values. Update them now and then, e.g. monthly from your statements.
 5. **Planned**: add known big future expenses.
-6. After that it's mostly **Quick add** on the Home page.
+6. After that it's mostly **Quick add** on the Home page, or **📷 Scan receipt** right above it.
+
+### Receipts and warranties
+
+- **Scan receipt** opens the phone camera; **Choose file** takes a photo from the gallery or a PDF (e.g. an emailed invoice). After a few seconds you see the receipt next to a filled-in entry: check the amount, date and category and tap *Save*. The category is suggested from earlier entries with the same store name.
+- If the same amount was already entered (by hand or by a recurring item), the receipt offers **Attach** to that entry instead, so nothing is counted twice.
+- Not in the mood right now? *Do it later*: the scan waits under **Receipts › Unfiled**.
+- For big purchases, open *Add warranty or serial number* while saving, or use *+ Add warranty* on the entry. The **1 / 2 / 3 / 5 years** buttons fill in the end date from the purchase date. Things bought before you used the app go under **Receipts › Warranties › + Add item**.
+- Warranties ending within 60 days are listed on the Home page (change the number in **Settings**).
+- Tips for good results: lay the receipt flat on a dark surface, fill the frame, avoid shadows. Long receipts read fine in one photo.
+- iPhone: photos taken through the upload button are sent as JPEG. HEIC files from the Files app aren't supported; set *Settings › Camera › Formats › Most Compatible* if you upload those.
+- Deleting an entry never deletes its files: they move to *Unfiled*. Files are only deleted with their own *Delete* button.
 
 ## 4. How the numbers are calculated
 
@@ -89,6 +104,7 @@ The containers restart automatically after a reboot or power cut.
 ## 5. Backups and restore
 
 - A dump of the database is written every night at `BACKUP_TIME` (default 02:30) to `BACKUP_PATH` (default `./backups` in the project folder) and kept for `BACKUP_KEEP_DAYS` days. The Settings page lists the latest files.
+- Receipts and documents are copied to `BACKUP_PATH/files` in the same run. Uploaded files never change, so only new files are copied. Files you delete in the app stay in the backup, so an older database dump can always be restored together with its files.
 - **Point `BACKUP_PATH` at a different disk** (USB drive or NAS mount) in `.env`, then run `docker compose up -d`. A backup on the same disk won't survive a disk failure.
 - Take a backup right now:
   ```bash
@@ -99,6 +115,11 @@ The containers restart automatically after a reboot or power cut.
   set -a; . ./.env; set +a
   gunzip -c backups/budget-2026-09-24_0230.sql.gz | docker compose exec -T db mariadb -u budget -p"$DB_PASSWORD" budget
   ```
+- Restore receipts and documents (e.g. onto a new box):
+  ```bash
+  docker compose run --rm --no-deps -v "$(pwd)/backups/files:/restore:ro" app cp -r /restore/. /uploads/
+  ```
+  If `BACKUP_PATH` points elsewhere, use that folder instead of `$(pwd)/backups`.
 
 ## 6. Updating
 
@@ -116,7 +137,9 @@ Then on the box, in the `budget-tracker` folder:
 bash scripts/update.sh
 ```
 
-This takes a database backup, downloads the latest code (`git pull`) and rebuilds and restarts the app. Your data lives in the Docker volume `db_data`, and `.env` and `backups/` are never touched by git.
+This takes a database backup, downloads the latest code (`git pull`) and rebuilds and restarts the app. Your data lives in the Docker volumes `db_data` (database) and `uploads` (receipts and documents), and `.env` and `backups/` are never touched by git.
+
+The first update after receipts were added also builds the OCR container. That downloads Tesseract (about 100 MB) and takes a few minutes; later updates reuse it. New tables are created automatically on start; existing data is not changed.
 
 To go back to an earlier version if an update causes trouble:
 
@@ -134,13 +157,14 @@ Run `git checkout main` and `bash scripts/update.sh` to return to the latest ver
 docker compose ps                 # status of the containers
 docker compose logs -f app        # app log
 docker compose logs backup        # backup log
+docker compose logs ocr           # receipt reader log
 docker compose restart app        # restart the web app
 docker compose down               # stop everything (data is kept)
 ```
 
 ## 8. Local development (Windows/Mac/Linux)
 
-The app also runs on SQLite, so no database server is needed for development:
+The app also runs on SQLite, so no database server is needed for development. Uploaded files go to `./uploads`. OCR is off unless `OCR_URL` points at a running OCR container; receipts can still be uploaded and typed in by hand.
 
 ```bash
 python -m venv .venv
@@ -151,14 +175,7 @@ python -m venv .venv
 
 ## Ideas for the next release
 
-### 1. Receipts and invoices: photo upload and OCR
-- Attach photos or PDFs to any entry or planned item. Big purchases would carry their invoice, warranty card and serial number, e.g. appliances, electronics, the car or the roof.
-- Read receipts automatically (OCR) to fill in the amount, date and store. You would only confirm the result.
-- Add **warranty tracking**: a warranty end date on an item, a list of items still under warranty, and a reminder on the Home page before a warranty runs out.
-- Search receipts by store, amount or text.
-- *Implementation notes:* files would be stored on the box in a volume next to the database and included in the nightly backup. OCR would run locally, e.g. Tesseract or PaddleOCR in a separate container, so receipts never leave the house. Phones can take a photo directly from the upload field.
-
-### 2. AI forecasting and recommendations
+### 1. AI forecasting and recommendations
 - Smarter forecasts than a plain 6-month average: they would account for seasonality (heating in winter, travel in summer), trends and irregular annual costs.
 - Written recommendations, e.g. “Restaurants are 40% over budget for 3 months in a row”, “Your subscriptions went up $28/month since spring”, or “At this pace you'll be $1,200 short for the roof in May”.
 - Detection of unusual entries, such as duplicates, typos (like $850 instead of $85.00) and one-off spikes.
@@ -166,7 +183,7 @@ python -m venv .venv
 - Questions in plain language: “How much did we spend on the kids last year?”
 - *Implementation notes:* the statistical part (seasonality, anomalies) can run locally in Python. For written recommendations and questions, a **local model** (e.g. via Ollama on the box) keeps all data private. A cloud AI API would be more capable but would send financial data out of the house. That should be an explicit opt-in, sending only summarized numbers.
 
-### 3. Overall wealth tracker with forecasts
+### 2. Overall wealth tracker with forecasts
 - Project net worth years ahead, not just the next budget year.
 - Expected growth rate per asset (investments, property) and depreciation (vehicles).
 - Regular contributions (RRSP, TFSA, RESP, savings), linked to the monthly budget surplus.
@@ -184,11 +201,15 @@ app/
   fiscal.py        month / budget-year date helpers
   recurring.py     schedules and auto-creation of recurring entries
   services.py      budget, actuals, forecast, net-worth calculations
+  files.py         storing uploaded photos/PDFs (rotation, size, metadata removal, thumbnails)
+  ocr.py           client for the OCR container
+  receipts.py      reading store, date and total from receipt text; category suggestions
   web.py           templates, form parsing, shared helpers
   routes/          one module per page
   templates/       HTML (Jinja2)
   static/          CSS, JS, Chart.js (bundled; no internet needed)
-backup/backup.sh   nightly dump job (runs in the backup container)
+ocr/               OCR container: Tesseract (eng + fra) behind a small HTTP API
+backup/backup.sh   nightly dump + file copy job (runs in the backup container)
 scripts/           Docker install, first-time setup, updates
 tests/             pytest suite
 ```

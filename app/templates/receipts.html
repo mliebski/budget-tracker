@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% from "_files.html" import scan_buttons, file_grid, receipt_tabs %}
+{% block title %}Receipts{% endblock %}
+{% block content %}
+<div class="page-head"><h1>Receipts</h1>{{ receipt_tabs('receipts') }}</div>
+
+<section class="card inline-card">
+  <p class="hint">Photograph a receipt to add an entry: the amount, date and store are read for you to confirm.
+    To add invoices, quotes or manuals to an existing entry, open the entry.</p>
+  {{ scan_buttons() }}
+</section>
+
+{% if unfiled %}
+<section class="card">
+  <div class="card-head"><h2>Unfiled</h2><span class="muted">{{ unfiled|length }}</span></div>
+  <p class="hint">Scans that were never saved as an entry, and files whose entry was deleted.</p>
+  {{ file_grid(unfiled, '/receipts', unfiled=True) }}
+</section>
+{% endif %}
+
+<form class="card filters" method="get">
+  <label class="field"><span>Store or text</span><input name="q" value="{{ q }}" placeholder="e.g. Costco, dishwasher" type="search"></label>
+  <label class="field"><span>Amount</span><input name="amount" value="{{ amount }}" placeholder="45.67 · 40-50 · >100" inputmode="decimal"></label>
+  <label class="field"><span>Type</span>
+    <select name="doc_type"><option value="">All types</option>
+      {% for k, label in DOC_TYPES.items() %}<option value="{{ k }}"{{ ' selected' if k == doc_type }}>{{ label }}</option>{% endfor %}
+    </select></label>
+  <label class="field"><span>From</span><input type="date" name="date_from" value="{{ date_from }}"></label>
+  <label class="field"><span>To</span><input type="date" name="date_to" value="{{ date_to }}"></label>
+  <div class="filter-actions">
+    <button class="btn primary">Search</button>
+    {% if searching %}<a class="btn" href="/receipts">Clear</a>{% endif %}
+  </div>
+</form>
+
+<section class="card">
+  <h2>{{ 'Results' if searching else 'Latest' }}</h2>
+  {% if results %}
+    {{ file_grid(results, request.url.path ~ ('?' ~ request.url.query if request.url.query else '')) }}
+    {% if more %}<p class="hint">Showing the first 60. Narrow the search to see others.</p>{% endif %}
+  {% else %}
+    <p class="empty">{{ 'Nothing matches.' if searching else 'No receipts yet. Scan one above, or add files to an entry.' }}</p>
+  {% endif %}
+</section>
+{% endblock %}

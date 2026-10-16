@@ -12,7 +12,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY app ./app
 
-RUN useradd --create-home --uid 1000 budget
+RUN useradd --create-home --uid 1000 budget  && mkdir /uploads && chown budget:budget /uploads
 USER budget
 
 EXPOSE 8000

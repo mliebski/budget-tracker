@@ -13,14 +13,14 @@ from sqlalchemy.orm import Session
 
 from .fiscal import add_months, fy_end, fy_of, month_end, month_range, month_start, months_between
 from .models import (
-    EXPENSE, INCOME, LIQUID_TYPES, Asset, AssetValue, Budget, Category, Planned, Recurring,
+    EXPENSE, INCOME, LIQUID_TYPES, Asset, AssetValue, Budget, Category, Item, Planned, Recurring,
     Setting, Tag, Transaction,
 )
 from .recurring import occurrences
 
 ZERO = Decimal("0")
 
-DEFAULT_SETTINGS = {"avg_months": "6"}
+DEFAULT_SETTINGS = {"avg_months": "6", "warranty_days": "60"}
 
 
 # --- settings -----------------------------------------------------------------
@@ -40,6 +40,17 @@ def set_setting(db: Session, key: str, value: str) -> None:
 
 def avg_window(db: Session) -> int:
     return int(get_setting(db, "avg_months"))
+
+
+def warranty_days(db: Session) -> int:
+    """How many days before a warranty ends it shows up on the Home page."""
+    return int(get_setting(db, "warranty_days"))
+
+
+def warranties_ending(db: Session, today: date) -> list[Item]:
+    hi = today + timedelta(days=warranty_days(db))
+    return list(db.scalars(select(Item).where(Item.warranty_end >= today, Item.warranty_end <= hi)
+                           .order_by(Item.warranty_end)))
 
 
 # --- categories ---------------------------------------------------------------

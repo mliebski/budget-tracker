@@ -1,0 +1,61 @@
+{% macro scan_buttons(label='Scan receipt') %}
+<form class="scan" method="post" action="/receipts/scan" enctype="multipart/form-data" data-scan>
+  <label class="btn scan-btn"><input type="file" name="file" accept="image/*" capture="environment" class="sr-only">📷 {{ label }}</label>
+  <label class="btn"><input type="file" name="file" accept="image/*,application/pdf" class="sr-only">Choose file</label>
+  <noscript><button class="btn">Read receipt</button></noscript>
+  <span class="busy" role="status" hidden>Reading the receipt…</span>
+</form>
+{% endmacro %}
+
+{% macro file_grid(attachments, next, unfiled=False) %}
+<ul class="files">
+  {% for a in attachments %}
+  <li class="file">
+    <a class="file-thumb" href="/files/{{ a.id }}" target="_blank" rel="noopener" aria-label="Open {{ a.filename }}">
+      {% if a.has_thumb %}<img src="/files/{{ a.id }}/thumb" alt="" loading="lazy">{% else %}<span class="file-icon">PDF</span>{% endif %}
+    </a>
+    <div class="file-meta">
+      {% if a.owner_link and not unfiled %}<a href="{{ a.owner_link }}"><strong>{{ a.title }}</strong></a>{% else %}<strong>{{ a.title }}</strong>{% endif %}
+      <small class="muted">{{ DOC_TYPES[a.doc_type] }} · {{ a.display_date.strftime('%d %b %Y') }}{% if a.display_amount is not none %} · {{ a.display_amount|money }}{% endif %}</small>
+      {% if a.ocr_status == 'failed' %}<small class="neg">Couldn't read the text</small>{% endif %}
+      <div class="file-actions">
+        {% if unfiled %}<a class="btn small primary" href="/receipts/{{ a.id }}/confirm">File it…</a>{% endif %}
+        {% if a.ocr_status == 'failed' %}
+        <form method="post" action="/attachments/{{ a.id }}/ocr"><input type="hidden" name="next" value="{{ next }}"><button class="btn small">Read again</button></form>
+        {% endif %}
+        <form method="post" action="/attachments/{{ a.id }}/delete" data-confirm="Delete “{{ a.filename }}” for good?">
+          <input type="hidden" name="next" value="{{ next }}"><button class="btn small">Delete</button></form>
+      </div>
+    </div>
+  </li>
+  {% endfor %}
+</ul>
+{% endmacro %}
+
+{% macro upload_form(owner, owner_id, next, doc_type='receipt') %}
+<form class="upload" method="post" action="/attachments" enctype="multipart/form-data" data-upload>
+  <input type="hidden" name="{{ owner }}" value="{{ owner_id }}">
+  <input type="hidden" name="next" value="{{ next }}">
+  <label class="field"><span>Add photos or PDFs</span>
+    <input type="file" name="files" multiple accept="image/*,application/pdf" required></label>
+  <div class="row">
+    <label class="field"><span>Type</span>
+      <select name="doc_type">{% for k, label in DOC_TYPES.items() %}<option value="{{ k }}"{{ ' selected' if k == doc_type }}>{{ label }}</option>{% endfor %}</select></label>
+    <div class="field upload-go"><button class="btn primary">Upload</button></div>
+  </div>
+  <span class="busy" role="status" hidden>Uploading and reading…</span>
+</form>
+{% endmacro %}
+
+{% macro warranty_years() %}
+<div class="chips" data-warranty-years aria-label="Warranty length from the purchase date">
+  {% for y in (1, 2, 3, 5) %}<button type="button" class="chip" data-years="{{ y }}">{{ y }} year{{ 's' if y > 1 }}</button>{% endfor %}
+</div>
+{% endmacro %}
+
+{% macro receipt_tabs(active) %}
+<nav class="seg links" aria-label="Receipts sections">
+  <a href="/receipts"{{ ' class=on aria-current=page'|safe if active == 'receipts' }}>Receipts</a>
+  <a href="/warranties"{{ ' class=on aria-current=page'|safe if active == 'warranties' }}>Warranties</a>
+</nav>
+{% endmacro %}

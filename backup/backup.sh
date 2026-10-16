@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Nightly MariaDB dump, run inside the "backup" container.
+# Nightly MariaDB dump plus a copy of uploaded files, run inside the "backup" container.
 #   docker compose exec backup bash /backup.sh now    # take a backup immediately
 set -euo pipefail
 
@@ -16,6 +16,14 @@ run_backup() {
   mv "$tmp" "$file"
   find /backups -maxdepth 1 -name 'budget-*.sql.gz' -mtime +"$KEEP_DAYS" -delete
   echo "$(date '+%F %T') backup written: $(basename "$file") ($(du -h "$file" | cut -f1))"
+
+  # Receipts & documents. Uploaded files never change, so copying new ones is enough.
+  # Files deleted in the app are kept here, so an older database dump can still be restored.
+  if [ -d /uploads ]; then
+    mkdir -p /backups/files
+    cp -a --update=none /uploads/. /backups/files/
+    echo "$(date '+%F %T') files copied: $(find /backups/files -type f | wc -l) in total ($(du -sh /backups/files | cut -f1))"
+  fi
 }
 
 if [ "${1:-}" = "now" ]; then

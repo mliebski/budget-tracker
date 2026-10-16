@@ -7,7 +7,10 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy.exc import OperationalError
 
 from .db import Base, SessionLocal, engine
-from .routes import assets, budgets, categories, dashboard, entries, planned, recurring, reports, settings
+from .routes import (
+    assets, budgets, categories, dashboard, entries, planned, receipts, recurring, reports, settings,
+    warranties,
+)
 from .seed import seed_categories
 from .web import BASE_DIR, UserError, back_url, redirect
 
@@ -38,7 +41,8 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Budget", lifespan=lifespan, docs_url=None, redoc_url=None)
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 
-for module in (dashboard, entries, reports, budgets, recurring, planned, assets, categories, settings):
+for module in (dashboard, entries, receipts, warranties, reports, budgets, recurring, planned, assets,
+               categories, settings):
     app.include_router(module.router)
 
 

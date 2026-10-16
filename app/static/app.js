@@ -76,6 +76,36 @@
     applyKind();
   });
 
+  // --- Receipts: scan on pick, busy indicators, warranty length shortcuts ---------------
+  document.querySelectorAll("form[data-scan]").forEach((form) => {
+    form.querySelectorAll('input[type="file"]').forEach((input) =>
+      input.addEventListener("change", () => {
+        if (!input.files.length) return;
+        // Only the chosen input is sent; reading can take a few seconds.
+        form.querySelectorAll('input[type="file"]').forEach((other) => { if (other !== input) other.disabled = true; });
+        form.querySelector(".busy").hidden = false;
+        form.querySelectorAll("label.btn").forEach((b) => b.setAttribute("aria-disabled", "true"));
+        form.submit();
+      }));
+  });
+  document.querySelectorAll("form[data-upload]").forEach((form) =>
+    form.addEventListener("submit", () => {
+      form.querySelector(".busy").hidden = false;
+      form.querySelector("button").disabled = true;
+    }));
+  document.querySelectorAll("[data-warranty-years]").forEach((group) => {
+    const form = group.closest("form");
+    const end = form.querySelector("[data-warranty-end]");
+    group.querySelectorAll("[data-years]").forEach((btn) =>
+      btn.addEventListener("click", () => {
+        const from = form.querySelector('input[name="purchase_date"], input[name="date"]');
+        const d = from && from.value ? new Date(from.value + "T12:00:00") : new Date();
+        d.setFullYear(d.getFullYear() + Number(btn.dataset.years));
+        end.value = d.toISOString().slice(0, 10);
+        group.querySelectorAll(".chip").forEach((c) => c.classList.toggle("on", c === btn));
+      }));
+  });
+
   // --- Budget form: live yearly totals ------------------------------------------------
   const budgetForm = document.querySelector("form[data-budget-form]");
   if (budgetForm) {

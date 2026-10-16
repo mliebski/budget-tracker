@@ -45,7 +45,8 @@ def populate(client, db):
 
 PAGES = ["/", "/entries", "/entries?fy=2025", "/reports", "/reports?view=quarter", "/reports?view=year",
          "/reports?view=year&fy=2024", "/forecast", "/budgets", "/budgets?fy=2030", "/recurring",
-         "/recurring/new", "/planned", "/assets", "/categories", "/settings"]
+         "/recurring/new", "/planned", "/assets", "/categories", "/settings", "/receipts", "/warranties",
+         "/warranties/new", "/receipts?q=x&amount=10-20&doc_type=receipt&date_from=2026-01-01"]
 
 
 def test_pages_render_empty(client):

@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% from "_files.html" import file_grid, upload_form, warranty_years %}
+{% block title %}{{ item.name if item else 'Add item' }}{% endblock %}
+{% block content %}
+{% set v = item or prefill %}
+<div class="narrow">
+  <div class="page-head"><h1>{{ item.name if item else 'Add item' }}</h1><a href="/warranties">All warranties</a></div>
+  {% if entry %}
+  <p class="note">Bought with the entry <a href="/entries/{{ entry.id }}/edit">{{ entry.date.strftime('%d %b %Y') }} · {{ entry.category.full_name }} · {{ entry.amount|money }}</a>.</p>
+  {% elif planned %}
+  <p class="note">Linked to the planned purchase <a href="/planned?edit={{ planned.id }}">{{ planned.name }}</a>.</p>
+  {% endif %}
+
+  <form class="card" method="post" action="/warranties">
+    <input type="hidden" name="iid" value="{{ item.id if item else '' }}">
+    {% if not item %}
+    <input type="hidden" name="transaction_id" value="{{ entry.id if entry else '' }}">
+    <input type="hidden" name="planned_id" value="{{ planned.id if planned else '' }}">
+    {% endif %}
+    <label class="field"><span>Item</span><input name="name" required maxlength="100" value="{{ v.name }}" placeholder="e.g. Dishwasher" {{ 'autofocus' if not item }}></label>
+    <div class="row">
+      <label class="field"><span>Store</span><input name="store" maxlength="100" value="{{ v.store }}"></label>
+      <label class="field"><span>Bought on</span><input type="date" name="purchase_date" value="{{ v.purchase_date.isoformat() if v.purchase_date else '' }}"></label>
+    </div>
+    <label class="field"><span>Warranty ends</span><input type="date" name="warranty_end" value="{{ item.warranty_end.isoformat() if item and item.warranty_end else '' }}" data-warranty-end></label>
+    {{ warranty_years() }}
+    <div class="row">
+      <label class="field"><span>Serial number</span><input name="serial_number" maxlength="100" value="{{ item.serial_number if item else '' }}" autocomplete="off"></label>
+      {% if not entry %}
+      <label class="field"><span>Price</span><input name="price" inputmode="decimal" value="{{ v.price if v.price is not none else '' }}" placeholder="optional"></label>
+      {% endif %}
+    </div>
+    <label class="field"><span>Note</span><input name="note" maxlength="255" value="{{ item.note if item else '' }}" placeholder="e.g. extended warranty #, model number, where the manual is"></label>
+    <button class="btn primary block">{{ 'Save' if item else 'Add item' }}</button>
+  </form>
+
+  {% if item %}
+  <section class="card">
+    <h2>Documents</h2>
+    {% if attachments %}{{ file_grid(attachments, '/warranties/' ~ item.id) }}
+    {% else %}<p class="empty">No documents yet.</p>{% endif %}
+    {{ upload_form('item_id', item.id, '/warranties/' ~ item.id, 'warranty') }}
+  </section>
+  <form method="post" action="/warranties/{{ item.id }}/delete" data-confirm="Delete “{{ item.name }}”? Its documents are kept as unfiled.">
+    <button class="btn danger">Delete item</button>
+  </form>
+  {% endif %}
+</div>
+{% endblock %}

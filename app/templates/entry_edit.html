@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "_macros.html" import entry_fields, category_data %}
+{% from "_files.html" import file_grid, upload_form %}
 {% block title %}Edit entry{% endblock %}
 {% block content %}
 <div class="narrow">
@@ -12,7 +13,27 @@
     <input type="hidden" name="next" value="{{ next }}">
     <button class="btn primary block">Save</button>
   </form>
-  <form method="post" action="/entries/{{ entry.id }}/delete" data-confirm="Delete this entry?">
+  {% set here = '/entries/' ~ entry.id ~ '/edit?next=' ~ (next|urlencode) %}
+  <section class="card">
+    <h2>Receipts &amp; documents</h2>
+    {% if attachments %}{{ file_grid(attachments, here) }}{% else %}<p class="empty">No files yet.</p>{% endif %}
+    {{ upload_form('transaction_id', entry.id, here, 'receipt' if not attachments else 'invoice') }}
+  </section>
+
+  <section class="card">
+    <div class="card-head"><h2>Warranty</h2>
+      <a href="/warranties/new?entry={{ entry.id }}">+ Add warranty or serial number</a></div>
+    {% if items %}
+    <ul class="list">
+      {% for i in items %}{% set left = i.days_left(today) %}
+      <li><a href="/warranties/{{ i.id }}" class="grow">{{ i.name }}{% if i.serial_number %} <small class="muted">S/N {{ i.serial_number }}</small>{% endif %}</a>
+        <span class="num {{ 'neg' if left is not none and left < 0 }}">{% if i.warranty_end %}{{ 'ended' if left < 0 else 'until' }} {{ i.warranty_end.strftime('%d %b %Y') }}{% else %}no end date{% endif %}</span></li>
+      {% endfor %}
+    </ul>
+    {% else %}<p class="empty">For appliances, electronics and other big purchases: keep the warranty end date and serial number here.</p>{% endif %}
+  </section>
+
+  <form method="post" action="/entries/{{ entry.id }}/delete" data-confirm="Delete this entry?{{ ' Its files are kept under Receipts › Unfiled.' if attachments }}">
     <input type="hidden" name="next" value="{{ next }}">
     <button class="btn danger">Delete entry</button>
   </form>

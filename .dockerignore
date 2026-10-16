@@ -2,6 +2,8 @@
 .git
 .env
 backups
+uploads
+ocr
 tests
 scripts
 backup

@@ -7,6 +7,8 @@ import pytest
 _tmp = Path(tempfile.mkdtemp())
 os.environ["DATABASE_URL"] = f"sqlite:///{_tmp / 'test.db'}"
 os.environ["BACKUP_DIR"] = str(_tmp / "backups")
+os.environ["UPLOAD_DIR"] = str(_tmp / "uploads")
+os.environ.pop("OCR_URL", None)
 
 from app import recurring  # noqa: E402
 from app.db import Base, SessionLocal, engine  # noqa: E402

@@ -12,7 +12,7 @@
 <header class="topbar">
   <a class="brand" href="/"><img src="/static/icon.svg" alt="" width="24" height="24">Budget</a>
   <nav class="nav" aria-label="Main">
-    {% set path = request.url.path %}
+    {% set path = '/receipts' if request.url.path.startswith('/warranties') else request.url.path %}
     {% for href, label in NAV %}
       {% set on = (href == '/' and path == '/') or (href != '/' and path.startswith(href)) %}
       <a href="{{ href }}"{% if on %} class="active" aria-current="page"{% endif %}>{{ label }}</a>
