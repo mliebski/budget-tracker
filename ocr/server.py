@@ -24,8 +24,9 @@ TIMEOUT = 150
 BUSY = threading.BoundedSemaphore(2)          # don't let several uploads starve a small box
 
 
-def run(*args: str) -> str:
-    return subprocess.run(args, capture_output=True, text=True, check=True, timeout=TIMEOUT).stdout
+def run(*args: str, both: bool = False) -> str:
+    done = subprocess.run(args, capture_output=True, text=True, check=True, timeout=TIMEOUT)
+    return done.stdout + done.stderr if both else done.stdout
 
 
 def tesseract(image: Path) -> str:
@@ -41,7 +42,7 @@ def read_pdf(path: Path, work: Path) -> str:
 
 
 def version() -> str:
-    first = run("tesseract", "--version").splitlines()
+    first = run("tesseract", "--version", both=True).splitlines()
     return first[0].split()[-1] if first else ""
 
 
@@ -57,8 +58,9 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path != "/health":
             return self._send(404, {"error": "not found"})
-        langs = run("tesseract", "--list-langs").split()[1:]  # first line is a heading
-        self._send(200, {"ok": True, "version": version(), "languages": [x for x in langs if x != "osd"]})
+        langs = run("tesseract", "--list-langs", both=True).splitlines()[1:]  # first line is a heading
+        self._send(200, {"ok": True, "version": version(),
+                         "languages": [x.strip() for x in langs if x.strip() and x.strip() != "osd"]})
 
     def do_POST(self):
         if self.path != "/ocr":

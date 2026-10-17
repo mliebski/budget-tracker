@@ -47,4 +47,4 @@
   <form method="post" action="/assets/{{ asset.id }}/delete" data-confirm="Delete {{ asset.name }} and its whole history? Archiving keeps history in net worth."><button class="btn danger">Delete</button></form>
 </div>
 {% endblock %}
-{% block scripts %}<script src="/static/vendor/chart.umd.min.js"></script>{% endblock %}
+{% block scripts %}<script src="{{ static_url('vendor/chart.umd.min.js') }}"></script>{% endblock %}

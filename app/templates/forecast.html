@@ -112,4 +112,4 @@
   {% else %}<p class="empty">No planned purchases. Add big future expenses like a new car or roof repair on the <a href="/planned">Planned</a> page.</p>{% endif %}
 </section>
 {% endblock %}
-{% block scripts %}<script src="/static/vendor/chart.umd.min.js"></script>{% endblock %}
+{% block scripts %}<script src="{{ static_url('vendor/chart.umd.min.js') }}"></script>{% endblock %}

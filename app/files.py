@@ -18,7 +18,9 @@ UPLOAD_DIR = Path(os.environ.get("UPLOAD_DIR", "./uploads"))
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 MAX_SIDE = 3000      # stored photo, long side in px: plenty for reading a receipt
 THUMB_SIDE = 480
-Image.MAX_IMAGE_PIXELS = 80_000_000  # refuse decompression bombs
+MAX_PIXELS = 80_000_000        # PNG/WebP are decoded in full, so keep those modest
+MAX_JPEG_PIXELS = 400_000_000  # JPEGs are decoded at reduced size (see draft below): 200 MP phones are fine
+Image.MAX_IMAGE_PIXELS = None  # limits are checked by hand below, with a proper message
 
 
 class UploadError(Exception):
@@ -70,8 +72,13 @@ def store(data: bytes) -> Stored:
 
     try:
         img = Image.open(io.BytesIO(data))
+        pixels = img.width * img.height
+        if pixels > (MAX_JPEG_PIXELS if img.format == "JPEG" else MAX_PIXELS):
+            raise UploadError(f"That photo is too large ({pixels // 1_000_000} megapixels). "
+                              "Use the camera's normal resolution.")
+        img.draft("RGB", (MAX_SIDE, MAX_SIDE))  # JPEG only: decode at reduced size, saves memory
         img.load()
-    except (UnidentifiedImageError, OSError, Image.DecompressionBombError):
+    except (UnidentifiedImageError, OSError):
         if data[4:12] in (b"ftypheic", b"ftypheix", b"ftypmif1", b"ftyphevc"):
             raise UploadError("HEIC photos aren't supported. On iPhone, set Camera › Formats to "
                               "“Most Compatible”, or take the photo from the upload button.")

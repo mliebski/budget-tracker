@@ -3,7 +3,6 @@ import time
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
-from fastapi.staticfiles import StaticFiles
 from sqlalchemy.exc import OperationalError
 
 from .db import Base, SessionLocal, engine
@@ -12,7 +11,7 @@ from .routes import (
     warranties,
 )
 from .seed import seed_categories
-from .web import BASE_DIR, UserError, back_url, redirect
+from .web import BASE_DIR, RevalidatingStaticFiles, UserError, back_url, redirect
 
 log = logging.getLogger("budget")
 
@@ -39,7 +38,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Budget", lifespan=lifespan, docs_url=None, redoc_url=None)
-app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
+app.mount("/static", RevalidatingStaticFiles(directory=BASE_DIR / "static"), name="static")
 
 for module in (dashboard, entries, receipts, warranties, reports, budgets, recurring, planned, assets,
                categories, settings):

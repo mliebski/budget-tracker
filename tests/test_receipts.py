@@ -332,3 +332,82 @@ def test_warranty_on_entry_marks_it_one_off(client, db):
     assert "one-off" in r.headers["location"].replace("%20", " ")
     db.expire_all()
     assert db.get(Transaction, t.id).one_off
+
+
+# --- phones: stale scripts, huge photos, the OCR container over real HTTP ---------------------
+
+def test_static_files_are_versioned_and_revalidated(client):
+    html = client.get("/").text
+    assert 'src="/static/app.js?v=' in html and 'href="/static/app.css?v=' in html
+    r = client.get("/static/app.js")
+    assert r.status_code == 200 and r.headers["cache-control"] == "no-cache" and r.headers["etag"]
+    assert client.get("/static/app.js", headers={"if-none-match": r.headers["etag"]}).status_code == 304
+    assert "/static/vendor/chart.umd.min.js?v=" in client.get("/reports").text
+
+
+def test_huge_phone_photo_is_shrunk(client, db):
+    big = io.BytesIO()
+    Image.new("RGB", (9000, 12000), "white").save(big, "JPEG", quality=30)  # a 108 MP shot
+    stored = files.store(big.getvalue())
+    img = Image.open(files.path_of(stored.stored_name))
+    assert max(img.size) <= files.MAX_SIDE and stored.has_thumb
+
+
+@pytest.fixture()
+def ocr_container(monkeypatch):
+    """The real OCR HTTP server with Tesseract and poppler replaced by fakes."""
+    import threading
+    sys.path.insert(0, str(Path(__file__).parents[1] / "ocr"))
+    import server
+
+    seen = []
+
+    def fake_run(*args, both=False):
+        seen.append(args[0])
+        if args[:2] == ("tesseract", "--list-langs"):
+            return 'List of available languages in "/usr/share/tessdata/" (3):\neng\nfra\nosd\n'
+        if args[:2] == ("tesseract", "--version"):
+            return "tesseract 5.3.0\n leptonica-1.82.0\n"
+        if args[0] == "pdftotext":
+            return "Invoice\nTOTAL 99.00 with a real text layer\n"
+        return "COSTCO\nTOTAL 12.34\n"
+
+    monkeypatch.setattr(server, "run", fake_run)
+    httpd = server.ThreadingHTTPServer(("127.0.0.1", 0), server.Handler)
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    monkeypatch.setattr(ocr, "OCR_URL", f"http://127.0.0.1:{httpd.server_address[1]}")
+    yield seen
+    httpd.shutdown()
+
+
+def test_app_talks_to_ocr_container(client, db, ocr_container):
+    assert ocr.status() == {"ok": True, "detail": "Tesseract 5.3.0, languages: eng, fra"}
+    assert "Working" in client.get("/settings").text
+
+    r = scan(client)  # photo -> /ocr -> text -> parsed
+    assert r.status_code == 303
+    att = db.scalar(select(Attachment))
+    assert (att.ocr_status, att.amount, att.store) == ("done", D("12.34"), "Costco")
+
+    client.post("/attachments", data={"doc_type": "invoice"},
+                files={"files": ("inv.pdf", b"%PDF-1.4 text layer", "application/pdf")})
+    pdf = db.scalar(select(Attachment).where(Attachment.content_type == "application/pdf"))
+    assert (pdf.ocr_status, pdf.amount) == ("done", D("99.00"))
+    assert "pdftotext" in ocr_container
+
+
+def test_ocr_down_does_not_break_scanning(client, db, monkeypatch):
+    monkeypatch.setattr(ocr, "OCR_URL", "http://127.0.0.1:9")  # nothing listens here
+    r = scan(client)
+    assert r.status_code == 303
+    att = db.scalar(select(Attachment))
+    assert att.ocr_status == "failed" and att.stored_name
+    assert "couldn't be read" in client.get(r.headers["location"]).text
+    assert ocr.status()["ok"] is False
+
+
+def test_oversized_non_jpeg_gets_a_clear_message():
+    png = io.BytesIO()
+    Image.new("1", (10000, 9000)).save(png, "PNG")  # 90 MP, tiny file
+    with pytest.raises(files.UploadError, match="too large"):
+        files.store(png.getvalue())

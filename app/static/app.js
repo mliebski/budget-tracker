@@ -88,6 +88,18 @@
         form.submit();
       }));
   });
+  // Phone browsers restore a page from memory on Back, including the "busy" state set above.
+  window.addEventListener("pageshow", (e) => {
+    if (!e.persisted) return;
+    document.querySelectorAll("form[data-scan], form[data-upload]").forEach((form) => {
+      form.reset();
+      form.querySelectorAll('input[type="file"]').forEach((i) => { i.disabled = false; });
+      form.querySelectorAll("button").forEach((b) => { b.disabled = false; });
+      form.querySelectorAll("label.btn").forEach((b) => b.removeAttribute("aria-disabled"));
+      const busy = form.querySelector(".busy");
+      if (busy) busy.hidden = true;
+    });
+  });
   document.querySelectorAll("form[data-upload]").forEach((form) =>
     form.addEventListener("submit", () => {
       form.querySelector(".busy").hidden = false;

@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#0f766e">
 <title>{% block title %}Budget{% endblock %} · Budget</title>
-<link rel="icon" href="/static/icon.svg" type="image/svg+xml">
-<link rel="stylesheet" href="/static/app.css">
+<link rel="icon" href="{{ static_url('icon.svg') }}" type="image/svg+xml">
+<link rel="stylesheet" href="{{ static_url('app.css') }}">
 </head>
 <body>
 <header class="topbar">
-  <a class="brand" href="/"><img src="/static/icon.svg" alt="" width="24" height="24">Budget</a>
+  <a class="brand" href="/"><img src="{{ static_url('icon.svg') }}" alt="" width="24" height="24">Budget</a>
   <nav class="nav" aria-label="Main">
     {% set path = '/receipts' if request.url.path.startswith('/warranties') else request.url.path %}
     {% for href, label in NAV %}
@@ -37,6 +37,6 @@
   {% block content %}{% endblock %}
 </main>
 {% block scripts %}{% endblock %}
-<script src="/static/app.js"></script>
+<script src="{{ static_url('app.js') }}"></script>
 </body>
 </html>

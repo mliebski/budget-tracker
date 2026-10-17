@@ -7,6 +7,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit
 
 from fastapi import Request
 from fastapi.responses import RedirectResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from jinja2 import Undefined
 
@@ -22,6 +23,28 @@ NAV = [
     ("/forecast", "Forecast"), ("/budgets", "Budgets"), ("/recurring", "Recurring"), ("/planned", "Planned"),
     ("/assets", "Assets"), ("/categories", "Categories"), ("/settings", "Settings"),
 ]
+
+
+class RevalidatingStaticFiles(StaticFiles):
+    """Static files that browsers re-check on every load (cheap 304s thanks to the ETag).
+
+    Without this, a phone that used the app before an update keeps running the old
+    script for days (heuristic caching), and new buttons silently do nothing.
+    """
+
+    def file_response(self, *args, **kwargs):
+        response = super().file_response(*args, **kwargs)
+        response.headers["Cache-Control"] = "no-cache"
+        return response
+
+
+def static_url(path: str) -> str:
+    """/static/app.js?v=<mtime>: a new URL after every change, so no stale copy is reused."""
+    try:
+        version = int((BASE_DIR / "static" / path).stat().st_mtime)
+    except OSError:
+        return f"/static/{path}"
+    return f"/static/{path}?v={version}"
 
 
 class UserError(Exception):
@@ -83,7 +106,7 @@ def chart_json(spec: dict) -> str:
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 templates.env.filters.update(money=money, month=month_label)
 templates.env.globals.update(
-    NAV=NAV, KINDS=KINDS, DOC_TYPES=DOC_TYPES, FREQUENCIES=FREQUENCIES, ASSET_TYPES=ASSET_TYPES,
+    NAV=NAV, KINDS=KINDS, DOC_TYPES=DOC_TYPES, static_url=static_url, FREQUENCIES=FREQUENCIES, ASSET_TYPES=ASSET_TYPES,
     fy_label=fiscal.fy_label, percent=percent, chart_json=chart_json, bar=bar,
     month_name=lambda m: date(2000, m, 1).strftime("%B"),
     fy_month_numbers=fiscal.fy_month_numbers(),
