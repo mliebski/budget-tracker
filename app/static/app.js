@@ -188,7 +188,9 @@
     const datasets = spec.datasets.map((ds, i) => {
       const color = ROLE[ds.role] || PALETTE[0];
       // Only datasets that share an explicit stack are stacked; lines never stack.
-      const out = { label: ds.label, data: ds.data, stack: ds.stack || `own-${i}` };
+      // (A "stack" on a doughnut dataset makes Chart.js 4 throw and draw nothing.)
+      const out = { label: ds.label, data: ds.data };
+      if (!isDoughnut) out.stack = ds.stack || `own-${i}`;
       if (isDoughnut) {
         out.backgroundColor = spec.labels.map((_, i) => PALETTE[i % PALETTE.length]);
         out.borderColor = v("--surface");
@@ -206,7 +208,9 @@
     const options = {
       maintainAspectRatio: false,
       responsive: true,
-      interaction: { mode: isDoughnut ? "nearest" : "index", intersect: false },
+      // Horizontal bars list categories down the page, so pick the hovered row by its y position;
+      // with the default x axis the tooltip showed other rows' text.
+      interaction: { mode: isDoughnut ? "nearest" : "index", intersect: false, axis: spec.horizontal ? "y" : "x" },
       plugins: {
         legend: { position: isDoughnut ? "right" : "bottom", labels: { boxWidth: 12, usePointStyle: true } },
         tooltip: {
