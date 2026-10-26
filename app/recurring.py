@@ -1,11 +1,12 @@
 """Recurring items: schedule maths and turning due occurrences into entries."""
 import threading
+from collections import defaultdict
 from datetime import date, timedelta
 from decimal import Decimal
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from .fiscal import add_months, months_between
 from .models import Recurring, RecurringSkip, Transaction
@@ -78,24 +79,36 @@ def skip_past(db: Session, r: Recurring, today: date) -> None:
 
 def materialize(db: Session, today: date) -> int:
     """Create entries for all due occurrences up to and including today."""
-    created = 0
-    for r in db.scalars(select(Recurring).where(Recurring.active.is_(True))):
-        existing = set(db.scalars(select(Transaction.occurrence_date)
-                                  .where(Transaction.recurring_id == r.id)))
-        skipped = _skipped(db, r.id)
-        for d in occurrences(r.start_date, r.frequency, r.end_date, r.start_date, today):
-            if d in existing or d in skipped:
-                continue
-            db.add(Transaction(date=d, amount=r.amount, category_id=r.category_id, note=r.name,
-                               recurring_id=r.id, occurrence_date=d, tags=list(r.tags)))
-            created += 1
-    if created:
+    for _ in range(2):
+        items = list(db.scalars(select(Recurring).where(Recurring.active.is_(True))
+                                .options(selectinload(Recurring.tags))))
+        if not items:
+            return 0
+        ids = [r.id for r in items]
+        done = defaultdict(set)  # generated or skipped dates per recurring item
+        for rid, d in db.execute(select(Transaction.recurring_id, Transaction.occurrence_date)
+                                 .where(Transaction.recurring_id.in_(ids))):
+            done[rid].add(d)
+        for rid, d in db.execute(select(RecurringSkip.recurring_id, RecurringSkip.date)
+                                 .where(RecurringSkip.recurring_id.in_(ids))):
+            done[rid].add(d)
+        created = 0
+        for r in items:
+            for d in occurrences(r.start_date, r.frequency, r.end_date, r.start_date, today):
+                if d not in done[r.id]:
+                    db.add(Transaction(date=d, amount=r.amount, category_id=r.category_id, note=r.name,
+                                       recurring_id=r.id, occurrence_date=d, tags=list(r.tags)))
+                    created += 1
+        if not created:
+            return 0
         try:
             db.commit()
-        except IntegrityError:  # another request generated them at the same moment
+            return created
+        except IntegrityError:
+            # Another request generated some of them at the same moment: look again, so
+            # the ones it didn't create aren't left waiting until tomorrow.
             db.rollback()
-            return 0
-    return created
+    return 0
 
 
 _lock = threading.Lock()

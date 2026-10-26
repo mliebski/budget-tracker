@@ -24,6 +24,13 @@ def _backups() -> list[dict]:
              "when": datetime.fromtimestamp(p.stat().st_mtime)} for p in files[:10]]
 
 
+def _whole_number(text: str) -> int | None:
+    try:
+        return int(text.strip())
+    except ValueError:
+        return None
+
+
 @router.get("/settings")
 def settings_page(request: Request, db: Session = Depends(get_db)):
     ai_url, ai_model = ai.config(db)
@@ -36,10 +43,12 @@ def settings_page(request: Request, db: Session = Depends(get_db)):
 
 
 @router.post("/settings")
-def settings_save(avg_months: int = Form(6), warranty_days: int = Form(60), db: Session = Depends(get_db)):
-    if not 1 <= avg_months <= 24:
+def settings_save(avg_months: str = Form("6"), warranty_days: str = Form("60"), db: Session = Depends(get_db)):
+    # Taken as text so a typo gets a message on the page, not FastAPI's raw 422 error.
+    avg_months, warranty_days = _whole_number(avg_months), _whole_number(warranty_days)
+    if avg_months is None or not 1 <= avg_months <= 24:
         raise UserError("The averaging window must be between 1 and 24 months.")
-    if not 0 <= warranty_days <= 365:
+    if warranty_days is None or not 0 <= warranty_days <= 365:
         raise UserError("The warranty reminder must be between 0 and 365 days.")
     set_setting(db, "avg_months", str(avg_months))
     set_setting(db, "warranty_days", str(warranty_days))

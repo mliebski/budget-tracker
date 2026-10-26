@@ -2,8 +2,10 @@ from fastapi import APIRouter, Depends, Form, Request
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from ..models import EXPENSE, INCOME, KINDS, Budget, Category, Planned, Recurring, Tag, Transaction, transaction_tags
-from ..services import category_tree
+from ..models import (
+    EXPENSE, INCOME, KINDS, Budget, Category, Planned, Recurring, Tag, Transaction, recurring_tags, transaction_tags,
+)
+from ..services import all_tags, category_tree
 from ..web import UserError, get_db, parse_int, redirect, render
 
 router = APIRouter()
@@ -31,7 +33,7 @@ def categories_page(request: Request, db: Session = Depends(get_db)):
                                  .group_by(transaction_tags.c.tag_id)).all())
     return render(request, "categories.html",
                   trees={k: category_tree(db, k, include_archived=True) for k in (EXPENSE, INCOME)},
-                  usage=_usage(db), tags=list(db.scalars(select(Tag).order_by(Tag.name))),
+                  usage=_usage(db), tags=all_tags(db),
                   tag_counts=tag_counts)
 
 
@@ -98,12 +100,15 @@ def category_delete(cid: int, db: Session = Depends(get_db)):
 def tag_rename(tid: int, name: str = Form(""), db: Session = Depends(get_db)):
     tag = db.get(Tag, tid)
     name = " ".join(name.split())[:50]
-    if tag and name:
-        clash = db.scalar(select(Tag).where(func.lower(Tag.name) == name.lower(), Tag.id != tid))
-        if clash:
-            raise UserError(f"A tag called “{clash.name}” already exists.")
-        tag.name = name
-        db.commit()
+    if not tag:
+        return redirect("/categories#tags", msg="That tag no longer exists.")
+    if not name:
+        raise UserError("Please enter a tag name.")
+    clash = db.scalar(select(Tag).where(func.lower(Tag.name) == name.lower(), Tag.id != tid))
+    if clash:
+        raise UserError(f"A tag called “{clash.name}” already exists.")
+    tag.name = name
+    db.commit()
     return redirect("/categories#tags", msg="Tag renamed.")
 
 
@@ -112,6 +117,7 @@ def tag_delete(tid: int, db: Session = Depends(get_db)):
     tag = db.get(Tag, tid)
     if tag:
         db.execute(transaction_tags.delete().where(transaction_tags.c.tag_id == tid))
+        db.execute(recurring_tags.delete().where(recurring_tags.c.tag_id == tid))
         db.delete(tag)
         db.commit()
     return redirect("/categories#tags", msg="Tag removed from all entries.")

@@ -373,6 +373,8 @@ def ocr_container(monkeypatch):
         return "COSTCO\nTOTAL 12.34\n"
 
     monkeypatch.setattr(server, "run", fake_run)
+    server.version.cache_clear()
+    server.languages.cache_clear()
     httpd = server.ThreadingHTTPServer(("127.0.0.1", 0), server.Handler)
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
     monkeypatch.setattr(ocr, "OCR_URL", f"http://127.0.0.1:{httpd.server_address[1]}")
@@ -392,6 +394,7 @@ def test_app_talks_to_ocr_container(client, db, ocr_container):
     client.post("/attachments", data={"doc_type": "invoice"},
                 files={"files": ("inv.pdf", b"%PDF-1.4 text layer", "application/pdf")})
     pdf = db.scalar(select(Attachment).where(Attachment.content_type == "application/pdf"))
+    pdf = wait_for_ocr(db, pdf.id)  # uploads are read in the background
     assert (pdf.ocr_status, pdf.amount) == ("done", D("99.00"))
     assert "pdftotext" in ocr_container
 
@@ -411,3 +414,62 @@ def test_oversized_non_jpeg_gets_a_clear_message():
     Image.new("1", (10000, 9000)).save(png, "PNG")  # 90 MP, tiny file
     with pytest.raises(files.UploadError, match="too large"):
         files.store(png.getvalue())
+
+
+def test_confirming_a_receipt_twice_adds_one_entry(client, db, ocr_text):
+    att_id = scan(client).headers["location"].split("/")[2]
+    data = {"amount": "10.98", "category_id": cat_id(db, "Groceries"), "date": "2026-10-14", "note": "Costco"}
+    first = client.post(f"/receipts/{att_id}/confirm", data=data, follow_redirects=False)
+    again = client.post(f"/receipts/{att_id}/confirm", data=data, follow_redirects=False)
+    assert first.status_code == again.status_code == 303
+    t = db.scalar(select(Transaction))
+    assert again.headers["location"].startswith(f"/entries/{t.id}/edit")
+    assert len(db.scalars(select(Transaction)).all()) == 1
+
+
+def wait_for_ocr(db, att_id, timeout=10):
+    import time
+    end = time.time() + timeout
+    while time.time() < end:
+        db.expire_all()
+        att = db.get(Attachment, att_id)
+        if att.ocr_status != "none":
+            return att
+        time.sleep(0.05)
+    raise AssertionError("OCR did not finish")
+
+
+def test_bulk_upload_returns_before_ocr_and_reads_in_background(client, db, ocr_text, monkeypatch):
+    import threading
+    gate = threading.Event()
+
+    def slow_read(name, ctype):
+        gate.wait(5)
+        return ocr_text["text"]
+
+    monkeypatch.setattr(ocr, "read_text", slow_read)
+    r = client.post("/attachments", data={"doc_type": "receipt"}, follow_redirects=False,
+                    files=[("files", ("a.jpg", jpeg(), "image/jpeg")), ("files", ("b.jpg", jpeg(), "image/jpeg"))])
+    assert r.status_code == 303 and "2 files added" in r.headers["location"].replace("+", " ")
+    atts = db.scalars(select(Attachment)).all()
+    assert [a.ocr_status for a in atts] == ["none", "none"]  # the response did not wait for OCR
+    gate.set()
+    assert [(wait_for_ocr(db, a.id).ocr_status, db.get(Attachment, a.id).amount) for a in atts] == \
+        [("done", D("10.98"))] * 2
+
+
+def test_bad_file_in_bulk_upload_leaves_no_files_behind(client, db):
+    on_disk = lambda: {p for p in files.UPLOAD_DIR.rglob("*") if p.is_file()}  # noqa: E731
+    before = on_disk()
+    r = client.post("/attachments", data={"doc_type": "receipt"}, follow_redirects=False,
+                    files=[("files", ("a.jpg", jpeg(), "image/jpeg")), ("files", ("b.txt", b"hello", "text/plain"))])
+    assert r.status_code == 303 and "error=1" in r.headers["location"]
+    assert db.scalars(select(Attachment)).all() == []
+    assert on_disk() == before
+
+
+def test_ocr_health_runs_tesseract_once(client, ocr_container):
+    for _ in range(3):
+        ocr._failed.clear()
+        assert ocr.status()["ok"]
+    assert ocr_container.count("tesseract") == 2  # --version and --list-langs, once each

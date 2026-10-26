@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from .. import ai, ai_data
 from ..db import SessionLocal
-from ..models import AiChat, AiMessage, AiReport
+from ..models import AiChat, AiMessage, AiReport, RunStatus
 from ..services import set_setting
 from ..web import UserError, get_db, redirect, render
 
@@ -26,7 +26,7 @@ CHAT_GUIDE = (
 
 
 def _parse(report: AiReport | None) -> dict | None:
-    if not report or report.status != "done":
+    if not report or report.status != RunStatus.DONE:
         return None
     try:
         return json.loads(report.result)
@@ -187,14 +187,14 @@ def report_status(rid: int, db: Session = Depends(get_db)):
     report = db.get(AiReport, rid)
     if not report:
         return JSONResponse({"status": "missing"}, status_code=404)
-    return {"status": "failed" if ai_data.is_stale(report) else report.status}
+    return {"status": RunStatus.FAILED if ai_data.is_stale(report) else report.status}
 
 
 @router.post("/ai/reports/{rid}/delete")
 def report_delete(rid: int, db: Session = Depends(get_db)):
     report = db.get(AiReport, rid)
     kind = report.kind if report else "expenses"
-    if report and report.status != "running":
+    if report and report.status != RunStatus.RUNNING:
         db.delete(report)
         db.commit()
     return redirect(f"/ai/{kind}", msg="Report deleted.")
@@ -204,10 +204,12 @@ def report_delete(rid: int, db: Session = Depends(get_db)):
 def ai_settings(ai_url: str = Form(""), ai_model: str = Form(""), db: Session = Depends(get_db)):
     url = ai_url.strip().rstrip("/")
     if url and not url.startswith(("http://", "https://")):
-        raise UserError("The Ollama address must start with http:// or https://, e.g. http://host.docker.internal:11434")
+        raise UserError("The Ollama address must start with http:// or https://, "
+                        "e.g. http://host.docker.internal:11434")
     set_setting(db, "ai_url", url[:255])
     set_setting(db, "ai_model", ai_model.strip()[:100])
     db.commit()
+    ai._failed.clear()  # check the server again right away
     return redirect("/settings", msg="AI settings saved.")
 
 
@@ -220,12 +222,14 @@ def report_page(request: Request, kind: str, report: int | None = None, db: Sess
     runs = list(db.scalars(select(AiReport).where(AiReport.kind == kind).order_by(AiReport.id.desc()).limit(15)))
     for r in runs:
         if ai_data.is_stale(r):
-            r.status, r.error = "failed", "Interrupted (the app restarted while the report was running)."
-    db.commit()
-    running = next((r for r in runs if r.status == "running"), None)
+            # Shown as failed without writing from a GET: detached, the change is never saved.
+            # (Startup marks such runs failed for real, see ai_data.fail_interrupted.)
+            db.expunge(r)
+            r.status, r.error = RunStatus.FAILED, ai_data.INTERRUPTED
+    running = next((r for r in runs if r.status == RunStatus.RUNNING), None)
     shown = next((r for r in runs if r.id == report), None) if report else \
-        next((r for r in runs if r.status == "done"), None)
-    last_failed = runs[0] if runs and runs[0].status == "failed" and not report else None
+        next((r for r in runs if r.status == RunStatus.DONE), None)
+    last_failed = runs[0] if runs and runs[0].status == RunStatus.FAILED and not report else None
     result = _parse(shown)
     view = None
     if result:
@@ -243,7 +247,7 @@ def report_run(kind: str, db: Session = Depends(get_db)):
     _, model = ai.config(db)
     if not model:
         raise UserError("Pick an AI model in Settings first.")
-    busy = db.scalar(select(AiReport).where(AiReport.kind == kind, AiReport.status == "running"))
+    busy = db.scalar(select(AiReport).where(AiReport.kind == kind, AiReport.status == RunStatus.RUNNING))
     if busy and not ai_data.is_stale(busy):
         return redirect(f"/ai/{kind}", msg="A report is already being written.")
     ai_data.start_report(db, kind)

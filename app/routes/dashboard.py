@@ -5,9 +5,9 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from ..fiscal import fy_months, fy_of, fy_start, month_end, month_start
-from ..models import EXPENSE, INCOME, Tag, Transaction
+from ..models import EXPENSE, INCOME, Transaction
 from ..services import (
-    actual_by_month, budget_by_month, build_rows, category_choices, category_map, forecast,
+    actual_by_month, all_tags, budget_by_month, build_rows, category_choices, category_map, forecast,
     kind_total, recent_categories, sum_months, upcoming, warranties_ending,
 )
 from ..web import get_db, render
@@ -63,5 +63,5 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
         upcoming=upcoming(db, today), warranties=warranties_ending(db, today),
         categories=category_choices(db),
         recent_categories=recent_categories(db, today),
-        tags=list(db.scalars(select(Tag).order_by(Tag.name))),
+        tags=all_tags(db),
     )

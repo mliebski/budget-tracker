@@ -25,7 +25,7 @@
   <div class="flash{{ ' error' if request.query_params.get('error') }}" role="status">
     <span>{{ msg }}</span>
     {% set undo = request.query_params.get('undo') %}
-    {% if undo %}
+    {% if undo and undo.isdigit() %}{# an entry id; anything else could point the form elsewhere #}
     <form method="post" action="/entries/{{ undo }}/delete">
       <input type="hidden" name="next" value="{{ request.url.path }}">
       <button class="link">Undo</button>

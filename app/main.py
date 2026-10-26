@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from sqlalchemy.exc import OperationalError
 
+from . import ai_data
 from .db import Base, SessionLocal, engine
 from .migrate import add_missing_columns
 from .routes import (
@@ -32,6 +33,7 @@ def init_db(retries: int = 30) -> None:
             time.sleep(2)
     with SessionLocal() as db:
         seed_categories(db)
+        ai_data.fail_interrupted(db)
 
 
 @asynccontextmanager

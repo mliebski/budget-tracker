@@ -3,11 +3,11 @@ from decimal import Decimal, InvalidOperation
 
 from fastapi import APIRouter, Depends, Form, Request
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from ..models import ASSET_TYPES, Asset, AssetValue
 from ..services import net_worth, net_worth_series
-from ..web import UserError, get_db, money, parse_amount, parse_date, redirect, render
+from ..web import UserError, get_db, money, parse_amount, parse_date, redirect, render, safe_next
 
 router = APIRouter()
 
@@ -48,7 +48,7 @@ def _validate(name: str, type_: str) -> None:
 @router.get("/assets")
 def assets_page(request: Request, db: Session = Depends(get_db)):
     today = date.today()
-    assets = list(db.scalars(select(Asset).order_by(Asset.name)))
+    assets = list(db.scalars(select(Asset).order_by(Asset.name).options(selectinload(Asset.values))))
     groups = {"assets": [], "liabilities": []}
     archived = []
     for a in assets:
@@ -97,8 +97,7 @@ def asset_value(aid: int, value: str = Form(""), value_date: str = Form(""), nex
         return redirect("/assets")
     row = _set_value(db, asset, value, value_date)
     db.commit()
-    target = f"/assets/{aid}" if next == "detail" else "/assets"
-    return redirect(target, msg=f"{asset.name}: {money(row.value)} on {row.date:%d %b %Y}.")
+    return redirect(safe_next(next, "/assets"), msg=f"{asset.name}: {money(row.value)} on {row.date:%d %b %Y}.")
 
 
 @router.get("/assets/{aid}")

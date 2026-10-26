@@ -1,0 +1,22 @@
+# GitHub proposes dependency updates as pull requests, so security fixes in
+# FastAPI, Starlette, Pillow and the base images aren't missed. Nothing changes
+# on the box until such a PR is merged and scripts/update.sh is run.
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      python:
+        patterns: ["*"]
+
+  - package-ecosystem: docker
+    directories: ["/", "/ocr"]
+    schedule:
+      interval: monthly
+
+  - package-ecosystem: docker-compose
+    directory: /
+    schedule:
+      interval: monthly

@@ -10,7 +10,7 @@ os.environ["BACKUP_DIR"] = str(_tmp / "backups")
 os.environ["UPLOAD_DIR"] = str(_tmp / "uploads")
 os.environ.pop("OCR_URL", None)
 
-from app import recurring  # noqa: E402
+from app import ai, ocr, recurring  # noqa: E402
 from app.db import Base, SessionLocal, engine  # noqa: E402
 from app.seed import seed_categories  # noqa: E402
 
@@ -20,6 +20,8 @@ def db():
     Base.metadata.drop_all(engine)
     Base.metadata.create_all(engine)
     recurring._last_run = None
+    ai._failed.clear()
+    ocr._failed.clear()
     session = SessionLocal()
     seed_categories(session)
     yield session

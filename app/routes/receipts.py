@@ -1,5 +1,6 @@
 """Receipts & documents: scanning, OCR, attaching files and searching them."""
 import logging
+import threading
 from datetime import date
 
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
@@ -8,8 +9,9 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from .. import files, ocr, receipts
-from ..models import DOC_TYPES, Attachment, Item, Planned, Tag, Transaction
-from ..services import category_choices, recent_categories
+from ..db import SessionLocal
+from ..models import DOC_TYPES, Attachment, Item, OcrStatus, Planned, Transaction
+from ..services import all_tags, category_choices, recent_categories
 from ..web import (
     UserError, get_db, money, parse_amount, parse_int, parse_optional_date, redirect, render, safe_next,
 )
@@ -28,10 +30,10 @@ def run_ocr(db: Session, att: Attachment) -> None:
     """Read the text of an attachment and what it says (store, total, date)."""
     try:
         att.ocr_text = ocr.read_text(att.stored_name, att.content_type)[:60000]
-        att.ocr_status = "done"
+        att.ocr_status = OcrStatus.DONE
     except ocr.OcrError as e:
         log.warning("OCR of attachment %s failed: %s", att.id, e)
-        att.ocr_status = "failed" if ocr.enabled() else "none"
+        att.ocr_status = OcrStatus.FAILED if ocr.enabled() else OcrStatus.NONE
         return
     info = receipts.parse(att.ocr_text, receipts.known_stores(db))
     att.store = att.store or info.store
@@ -39,7 +41,7 @@ def run_ocr(db: Session, att: Attachment) -> None:
     att.doc_date = info.date
 
 
-def add_attachment(db: Session, upload: UploadFile, doc_type: str, **owner) -> Attachment:
+def add_attachment(db: Session, upload: UploadFile, doc_type: str, read_now: bool = True, **owner) -> Attachment:
     try:
         stored = files.store(_read(upload))
     except files.UploadError as e:
@@ -49,8 +51,26 @@ def add_attachment(db: Session, upload: UploadFile, doc_type: str, **owner) -> A
                      doc_type=doc_type if doc_type in DOC_TYPES else "other", **owner)
     db.add(att)
     db.flush()
-    run_ocr(db, att)
+    if read_now:
+        run_ocr(db, att)
     return att
+
+
+def ocr_in_background(ids: list[int]) -> None:
+    """Read uploaded files after the response has gone out; OCR can take minutes per file."""
+    def work():
+        with SessionLocal() as db:
+            for aid in ids:
+                try:
+                    att = db.get(Attachment, aid)
+                    if att:
+                        run_ocr(db, att)
+                        db.commit()
+                except Exception:  # one bad file must not stop the others
+                    log.exception("Background OCR of attachment %s failed", aid)
+                    db.rollback()
+
+    threading.Thread(target=work, daemon=True, name="ocr-uploads").start()
 
 
 def _attachment(db: Session, aid: int) -> Attachment:
@@ -108,7 +128,7 @@ def confirm_page(request: Request, aid: int, db: Session = Depends(get_db)):
              "date": att.doc_date or date.today(), "tags": [], "one_off": False}
     return render(request, "receipt_confirm.html", att=att, entry=entry, categories=cats,
                   recent_categories=recent_categories(db, date.today()),
-                  tags=list(db.scalars(select(Tag).order_by(Tag.name))),
+                  tags=all_tags(db),
                   matches=receipts.matching_entries(db, att.amount, att.doc_date),
                   ocr_enabled=ocr.enabled(), today=date.today())
 
@@ -119,6 +139,8 @@ def confirm_save(aid: int, amount: str = Form(""), category_id: str = Form(""),
                  one_off: bool = Form(False), item_name: str = Form(""), warranty_end: str = Form(""),
                  serial_number: str = Form(""), db: Session = Depends(get_db)):
     att = _attachment(db, aid)
+    if att.transaction_id:  # sent twice (double tap, or Back and submit again)
+        return redirect(f"/entries/{att.transaction_id}/edit", msg="This receipt is already filed.")
     entry = new_entry(db, amount, category_id, entry_date, note, tags, one_off)
     att.transaction_id = entry.id
     att.store = note.strip()[:100] or att.store  # the confirmed name teaches future scans
@@ -162,9 +184,21 @@ def upload(uploads: list[UploadFile | str] = File([], alias="files"), doc_type: 
     uploads = [u for u in uploads if not isinstance(u, str) and u.filename]
     if not uploads:
         raise UserError("Please choose one or more photos or PDFs.")
-    for u in uploads:
-        add_attachment(db, u, doc_type, **owner)
+    added = []
+    try:
+        for u in uploads:
+            added.append(add_attachment(db, u, doc_type, read_now=False, **owner))
+    except UserError:
+        # One bad file cancels the upload: remove the files already written, or they'd
+        # stay on disk without a database row.
+        written = [att.stored_name for att in added]
+        db.rollback()
+        for name in written:
+            files.remove(name)
+        raise
     db.commit()
+    if ocr.enabled():
+        ocr_in_background([att.id for att in added])
     n = len(uploads)
     return redirect(safe_next(next, "/receipts"), msg=f"{n} file{'s' if n > 1 else ''} added.")
 
@@ -185,7 +219,7 @@ def reread(aid: int, next: str = Form("/receipts"), db: Session = Depends(get_db
     att = _attachment(db, aid)
     run_ocr(db, att)
     db.commit()
-    ok = att.ocr_status == "done"
+    ok = att.ocr_status == OcrStatus.DONE
     return redirect(safe_next(next, "/receipts"), msg="Text read again." if ok else "OCR is not available.",
                     error=None if ok else 1)
 

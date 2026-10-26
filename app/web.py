@@ -13,14 +13,15 @@ from jinja2 import Undefined
 
 from . import fiscal
 from .db import SessionLocal
-from .models import ASSET_TYPES, DEFAULT_GROWTH, DOC_TYPES, KINDS
+from .models import ASSET_TYPES, DEFAULT_GROWTH, DOC_TYPES, KINDS, Category
 from .recurring import FREQUENCIES, ensure_up_to_date
 
 BASE_DIR = Path(__file__).parent
 
 NAV = [
     ("/", "Home"), ("/entries", "Entries"), ("/receipts", "Receipts"), ("/reports", "Reports"),
-    ("/forecast", "Forecast"), ("/ai", "AI"), ("/budgets", "Budgets"), ("/recurring", "Recurring"), ("/planned", "Planned"),
+    ("/forecast", "Forecast"), ("/ai", "AI"), ("/budgets", "Budgets"), ("/recurring", "Recurring"),
+    ("/planned", "Planned"),
     ("/assets", "Assets"), ("/categories", "Categories"), ("/settings", "Settings"),
 ]
 
@@ -53,6 +54,7 @@ class UserError(Exception):
 
 def get_db():
     db = SessionLocal()
+    db.info["cache"] = True  # short-lived, so per-request lookups may be cached (services.all_categories)
     try:
         ensure_up_to_date(db)
         yield db
@@ -106,7 +108,8 @@ def chart_json(spec: dict) -> str:
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 templates.env.filters.update(money=money, month=month_label)
 templates.env.globals.update(
-    NAV=NAV, KINDS=KINDS, DOC_TYPES=DOC_TYPES, DEFAULT_GROWTH=DEFAULT_GROWTH, static_url=static_url, FREQUENCIES=FREQUENCIES, ASSET_TYPES=ASSET_TYPES,
+    NAV=NAV, KINDS=KINDS, DOC_TYPES=DOC_TYPES, DEFAULT_GROWTH=DEFAULT_GROWTH, FREQUENCIES=FREQUENCIES,
+    ASSET_TYPES=ASSET_TYPES, static_url=static_url,
     fy_label=fiscal.fy_label, percent=percent, chart_json=chart_json, bar=bar,
     month_name=lambda m: date(2000, m, 1).strftime("%B"),
     fy_month_numbers=fiscal.fy_month_numbers(),
@@ -132,6 +135,9 @@ def safe_next(url: str | None, default: str = "/") -> str:
     """Only allow local paths as redirect targets."""
     if not url:
         return default
+    # Browsers read "\" as "/", so "/\evil.com" would leave the site.
+    if "\\" in url:
+        return default
     parts = urlsplit(url)
     if parts.scheme or parts.netloc or not parts.path.startswith("/") or url.startswith("//"):
         return default
@@ -150,6 +156,8 @@ def back_url(request: Request, default: str = "/") -> str:
 
 # --- parsing --------------------------------------------------------------------
 
+MAX_AMOUNT = Decimal("9999999999.99")  # the largest value models.Money (NUMERIC(12, 2)) can hold
+
 def parse_amount(text: str | None, allow_zero: bool = False, allow_negative: bool = False) -> Decimal:
     """Accepts '12.50', '$1,234', ' 12 + 3.40 ' (sums are handy for split receipts)."""
     cleaned = (text or "").replace("$", "").replace(",", "").replace(" ", "")
@@ -160,9 +168,13 @@ def parse_amount(text: str | None, allow_zero: bool = False, allow_negative: boo
     try:
         parts = cleaned.replace("-", "+-").split("+")
         total = sum((Decimal(p) for p in parts if p), Decimal("0"))
+        if not total.is_finite():  # "NaN", "Infinity"
+            raise InvalidOperation
+        total = total.quantize(Decimal("0.01"))
     except InvalidOperation:
         raise UserError(f"“{text}” is not a valid amount.")
-    total = total.quantize(Decimal("0.01"))
+    if abs(total) > MAX_AMOUNT:
+        raise UserError(f"Amounts can be at most {money(MAX_AMOUNT)}.")
     if total < 0 and not allow_negative:
         raise UserError("Amounts must be positive — pick an income or expense category instead.")
     if total == 0 and not allow_zero:
@@ -183,6 +195,24 @@ def parse_date(text: str | None, default: date | None = None) -> date:
 
 def parse_optional_date(text: str | None) -> date | None:
     return parse_date(text) if text else None
+
+
+def parse_category(db, text: str | None) -> Category:
+    """The category picked in a form; a missing or deleted one is a UserError."""
+    cid = parse_int(text)
+    cat = db.get(Category, cid) if cid else None
+    if not cat:
+        raise UserError("Please pick a category.")
+    return cat
+
+
+def parse_fy(value: str | int | None) -> int | None:
+    """A fiscal year from a form or query string; None when missing or implausible."""
+    try:
+        fy = int(value)
+    except (TypeError, ValueError):
+        return None
+    return fy if 1900 <= fy <= 2999 else None
 
 
 def parse_int(text: str | None) -> int | None:
