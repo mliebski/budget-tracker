@@ -6,20 +6,13 @@ from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session, selectinload
 
 from ..fiscal import add_months, fy_end, fy_of, fy_start, month_end, month_start
-from ..models import EXPENSE, INCOME, Attachment, Category, Item, Planned, RecurringSkip, Tag, Transaction
-from ..services import ZERO, category_choices, tags_from_text
+from ..models import EXPENSE, INCOME, Attachment, Category, Item, Planned, PlanStatus, RecurringSkip, Tag, Transaction
+from ..services import ZERO, all_tags, category_choices, tags_from_text
 from ..web import (
-    UserError, get_db, money, parse_amount, parse_date, parse_int, redirect, render, safe_next,
+    get_db, money, parse_amount, parse_category, parse_date, parse_fy, parse_int, redirect, render, safe_next,
 )
 
 router = APIRouter()
-
-
-def _category(db: Session, category_id: int | None) -> Category:
-    cat = db.get(Category, category_id) if category_id else None
-    if not cat:
-        raise UserError("Please pick a category.")
-    return cat
 
 
 def _parse_month(text: str | None) -> date:
@@ -30,10 +23,11 @@ def _parse_month(text: str | None) -> date:
 
 
 @router.get("/entries")
-def list_entries(request: Request, month: str | None = None, fy: int | None = None,
+def list_entries(request: Request, month: str | None = None, fy: str | None = None,
                  category: str | None = None, tag: str | None = None, q: str = "",
                  db: Session = Depends(get_db)):
     category_id, tag_id = parse_int(category), parse_int(tag)
+    fy = parse_fy(fy)  # an invalid year shows the month view instead
     if fy is not None:
         start, end = fy_start(fy), fy_end(fy)
         current = None
@@ -51,7 +45,7 @@ def list_entries(request: Request, month: str | None = None, fy: int | None = No
     if tag_id:
         query = query.where(Transaction.tags.any(Tag.id == tag_id))
     if q.strip():
-        query = query.where(func.lower(Transaction.note).contains(q.strip().lower()))
+        query = query.where(func.lower(Transaction.note).contains(q.strip().lower(), autoescape=True))
     entries = list(db.scalars(query))
     with_files = set(db.scalars(select(Attachment.transaction_id).where(
         Attachment.transaction_id.in_([e.id for e in entries])))) if entries else set()
@@ -68,7 +62,7 @@ def list_entries(request: Request, month: str | None = None, fy: int | None = No
         prev_month=add_months(current, -1) if current else None,
         next_month=add_months(current, 1) if current else None,
         category_id=category_id, tag_id=tag_id, q=q, with_files=with_files,
-        categories=category_choices(db), tags=list(db.scalars(select(Tag).order_by(Tag.name))),
+        categories=category_choices(db), tags=all_tags(db),
     )
 
 
@@ -85,7 +79,7 @@ def create_entry(amount: str = Form(""), category_id: str = Form(""),
 
 def new_entry(db: Session, amount: str, category_id: str, entry_date: str, note: str, tags: str,
               one_off: bool) -> Transaction:
-    cat = _category(db, parse_int(category_id))
+    cat = parse_category(db, category_id)
     entry = Transaction(amount=parse_amount(amount), category=cat,
                         date=parse_date(entry_date, date.today()), note=note.strip()[:255],
                         one_off=one_off, tags=tags_from_text(db, tags))
@@ -101,7 +95,7 @@ def edit_entry(request: Request, entry_id: int, next: str = "/entries", db: Sess
         return redirect("/entries", msg="That entry no longer exists.")
     return render(request, "entry_edit.html", entry=entry, next=safe_next(next, "/entries"),
                   categories=category_choices(db),
-                  tags=list(db.scalars(select(Tag).order_by(Tag.name))),
+                  tags=all_tags(db),
                   attachments=list(db.scalars(select(Attachment).where(Attachment.transaction_id == entry.id)
                                               .order_by(Attachment.id))),
                   items=list(db.scalars(select(Item).where(Item.transaction_id == entry.id))),
@@ -116,7 +110,7 @@ def update_entry(entry_id: int, amount: str = Form(""), category_id: str = Form(
     entry = db.get(Transaction, entry_id)
     if not entry:
         return redirect("/entries", msg="That entry no longer exists.")
-    cat = _category(db, parse_int(category_id))
+    cat = parse_category(db, category_id)
     entry.amount = parse_amount(amount)
     entry.category_id = cat.id
     entry.date = parse_date(entry_date, entry.date)
@@ -135,8 +129,8 @@ def delete_entry(entry_id: int, next: str = Form("/entries"), db: Session = Depe
             # Remember the deletion so the recurring item doesn't recreate it.
             db.add(RecurringSkip(recurring_id=entry.recurring_id, date=entry.occurrence_date))
         planned = db.get(Planned, entry.planned_id) if entry.planned_id else None
-        if planned and planned.status == "done":
-            planned.status = "planned"  # back into the forecast
+        if planned and planned.status == PlanStatus.DONE:
+            planned.status = PlanStatus.PLANNED  # back into the forecast
         # Receipts and warranty items outlive the entry: they become unfiled / standalone.
         kept = db.execute(update(Attachment).where(Attachment.transaction_id == entry.id)
                           .values(transaction_id=None)).rowcount

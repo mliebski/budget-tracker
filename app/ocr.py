@@ -5,6 +5,7 @@ development, OCR is switched off and receipts are entered by hand.
 """
 import json
 import os
+import time
 import urllib.error
 import urllib.request
 
@@ -22,16 +23,27 @@ def enabled() -> bool:
     return bool(OCR_URL)
 
 
+STATUS_TIMEOUT = 2
+FAILURE_TTL = 30  # seconds a failed check is remembered, so a down service doesn't slow every page load
+_failed: dict[str, tuple[float, dict]] = {}
+
+
 def status() -> dict:
     if not enabled():
         return {"ok": False, "detail": "not configured (OCR_URL is not set)"}
+    cached = _failed.get(OCR_URL)
+    if cached and time.monotonic() - cached[0] < FAILURE_TTL:
+        return cached[1]
     try:
-        with urllib.request.urlopen(f"{OCR_URL}/health", timeout=5) as r:
+        with urllib.request.urlopen(f"{OCR_URL}/health", timeout=STATUS_TIMEOUT) as r:
             info = json.load(r)
-        return {"ok": True, "detail": f"Tesseract {info.get('version', '')}, languages: "
-                                      f"{', '.join(info.get('languages', []))}"}
     except (OSError, ValueError) as e:
-        return {"ok": False, "detail": f"not reachable ({e})"}
+        result = {"ok": False, "detail": f"not reachable ({e})"}
+        _failed[OCR_URL] = (time.monotonic(), result)
+        return result
+    _failed.pop(OCR_URL, None)
+    return {"ok": True, "detail": f"Tesseract {info.get('version', '')}, languages: "
+                                  f"{', '.join(info.get('languages', []))}"}
 
 
 def read_text(stored_name: str, content_type: str) -> str:

@@ -9,7 +9,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, inspect, select
 
-from app import ai, ai_data
+from app import ai, ai_data, fiscal
 from app.main import app
 from app.migrate import add_missing_columns
 from app.models import AiChat, AiMessage, AiReport, Asset, Category
@@ -245,3 +245,92 @@ def test_pages_render(client):
     for page in ("/ai/expenses", "/ai/income", "/ai/chat/new", "/settings"):
         assert client.get(page).status_code == 200, page
     assert client.get("/ai", follow_redirects=False).headers["location"] == "/ai/expenses"
+
+
+def test_snapshot_lists_one_off_income_and_uses_the_fiscal_start(client, db, monkeypatch):
+    client.post("/entries", data={"amount": "5000", "category_id": cat_id(db, "Bonus"), "note": "Year-end bonus",
+                                  "date": date.today().isoformat(), "one_off": "true"})
+    text = ai_data.snapshot(db, date.today())
+    one_offs = text.split("## One-off purchases")[1].split("##")[0]
+    assert "Bonus,income,5000,Year-end bonus" in one_offs
+    assert "The budget year runs October to September" in text
+    monkeypatch.setattr(fiscal, "FY_START_MONTH", 4)
+    assert "The budget year runs April to March" in ai_data.snapshot(db, date.today())
+
+
+def test_chat_stream_turns_a_dropped_connection_into_an_ai_error(monkeypatch):
+    class Dropped:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def __iter__(self):
+            yield b'{"message": {"content": "Hel"}}\n'
+            raise TimeoutError("timed out")
+
+    class Garbled(Dropped):
+        def __iter__(self):
+            yield b'{"message": {"content": "Hel"}}\n'
+            yield b'{"message": {"cont'
+
+    for response, words in ((Dropped(), "connection"), (Garbled(), "could not be read")):
+        monkeypatch.setattr(ai, "_open", lambda *a, r=response, **k: r)
+        got = []
+        with pytest.raises(ai.AiError, match=words):
+            for kind, chunk in ai.chat_stream("http://x", "m", [{"role": "user", "content": "hi"}]):
+                got.append(chunk)
+        assert got == ["Hel"]
+
+
+def test_restart_marks_running_reports_failed(db):
+    db.add(AiReport(kind="expenses", model="m", status="running"))
+    db.commit()
+    with TestClient(app):  # startup
+        pass
+    db.expire_all()
+    r = db.scalar(select(AiReport))
+    assert (r.status, r.error) == ("failed", ai_data.INTERRUPTED)
+
+
+def test_report_page_does_not_write(client, db):
+    db.add(AiReport(kind="income", model="qwen3:8b", status="running", created_at=datetime.now() - timedelta(hours=1)))
+    db.commit()
+    assert "Interrupted" in client.get("/ai/income").text
+    db.expire_all()
+    assert db.scalar(select(AiReport)).status == "running"  # shown as failed, but left alone
+
+
+def test_failed_status_check_is_remembered_briefly(client, monkeypatch):
+    calls = []
+    real_open = ai._open
+
+    def counting_open(url, path, *a, **k):
+        calls.append(path)
+        return real_open(url, path, *a, **k)
+
+    monkeypatch.setattr(ai, "_open", counting_open)
+    assert not ai.status("http://127.0.0.1:9")["ok"]
+    assert not ai.status("http://127.0.0.1:9")["ok"]
+    assert calls == ["/api/version"]  # the second call was answered from memory
+    client.post("/ai/settings", data={"ai_url": "http://127.0.0.1:9", "ai_model": ""})  # saving checks again
+    ai.status("http://127.0.0.1:9")
+    assert calls == ["/api/version", "/api/version"]
+
+
+def test_text_before_think_tag_is_kept(monkeypatch):
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def __iter__(self):
+            yield b'{"message": {"content": "Sure. <think>hmm"}}\n'
+            yield b'{"message": {"content": "</think>Answer"}, "done": true}\n'
+
+    monkeypatch.setattr(ai, "_open", lambda *a, **k: Response())
+    got = [part for part in ai.chat_stream("http://x", "m", [{"role": "user", "content": "hi"}]) if part[1]]
+    assert got == [("text", "Sure. "), ("thinking", "hmm"), ("text", "Answer")]

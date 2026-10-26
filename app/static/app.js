@@ -222,6 +222,11 @@
       button.disabled = true;
       const answer = bubble("assistant", '<span class="thinking">Reading your budget…</span>');
       let text = "";
+      // Re-rendering the whole answer for every token is slow on phones: once per frame is enough.
+      let pending = 0;
+      const render = () => { pending = 0; answer.innerHTML = markdown(text); scroll(); };
+      const renderSoon = () => { if (!pending) pending = requestAnimationFrame(render); };
+      const renderNow = () => { if (pending) { cancelAnimationFrame(pending); render(); } };
       try {
         const body = new FormData();
         body.append("message", question);
@@ -263,15 +268,18 @@
               answer.innerHTML = '<span class="thinking">Thinking…</span>';
             } else if (ev.t === "text") {
               text += ev.c;
-              answer.innerHTML = markdown(text);
-              scroll();
+              renderSoon();
             } else if (ev.t === "error") {
+              if (pending) cancelAnimationFrame(pending);
+              pending = 0;
               answer.innerHTML = markdown(text) + `<p class="error">${escapeHtml(ev.c)}</p>`;
             }
           }
         }
+        renderNow();
         if (!text && !answer.querySelector(".error")) answer.innerHTML = '<p class="error">No answer came back.</p>';
       } catch (err) {
+        if (pending) cancelAnimationFrame(pending);
         answer.innerHTML = `<p class="error">${escapeHtml(err.message)}</p>`;
       } finally {
         button.disabled = false;

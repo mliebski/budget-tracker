@@ -8,7 +8,7 @@
   <section class="card">
     <h2>Record a value</h2>
     <form method="post" action="/assets/{{ asset.id }}/value">
-      <input type="hidden" name="next" value="detail">
+      <input type="hidden" name="next" value="/assets/{{ asset.id }}">
       <div class="row">
         <label class="field"><span>{{ 'Balance owed' if asset.is_liability else 'Value' }}</span><input name="value" inputmode="decimal" required value="{{ history[0].value if history else '' }}"></label>
         <label class="field"><span>As of</span><input type="date" name="value_date" value="{{ today.isoformat() }}"></label>

@@ -8,13 +8,13 @@ from dataclasses import dataclass, field
 from datetime import date, timedelta
 from decimal import Decimal
 
-from sqlalchemy import func, select
-from sqlalchemy.orm import Session
+from sqlalchemy import event, func, select
+from sqlalchemy.orm import Session, selectinload
 
 from .fiscal import add_months, fy_end, fy_of, month_end, month_range, month_start, months_between
 from .models import (
-    EXPENSE, INCOME, LIQUID_TYPES, Asset, AssetValue, Budget, Category, Item, Planned, Recurring,
-    Setting, Tag, Transaction,
+    EXPENSE, INCOME, LIQUID_TYPES, Asset, AssetValue, Budget, Category, Item, Planned, PlanStatus,
+    Recurring, Setting, Tag, Transaction,
 )
 from .recurring import occurrences
 
@@ -55,13 +55,29 @@ def warranties_ending(db: Session, today: date) -> list[Item]:
 
 # --- categories ---------------------------------------------------------------
 
+def all_categories(db: Session) -> list[Category]:
+    """Every category, sorted by name. A page asks several times, so a request's session
+    (see web.get_db) keeps the list until something is written."""
+    cats = db.info.get("categories")
+    if cats is None:
+        cats = list(db.scalars(select(Category).order_by(Category.name)))
+        if db.info.get("cache"):
+            db.info["categories"] = cats
+    return cats
+
+
+@event.listens_for(Session, "after_flush")
+def _forget_categories(session, _context):
+    session.info.pop("categories", None)
+
+
 def category_map(db: Session) -> dict[int, Category]:
-    return {c.id: c for c in db.scalars(select(Category))}
+    return {c.id: c for c in all_categories(db)}
 
 
 def category_tree(db: Session, kind: str | None = None, include_archived: bool = False):
     """[(top_category, [subcategories])] sorted by name."""
-    cats = [c for c in db.scalars(select(Category).order_by(Category.name))
+    cats = [c for c in all_categories(db)
             if (include_archived or not c.archived) and (kind is None or c.kind == kind)]
     tops = [c for c in cats if c.parent_id is None]
     return [(t, [c for c in cats if c.parent_id == t.id]) for t in tops]
@@ -93,6 +109,10 @@ def recent_categories(db: Session, today: date, per_kind: int = 8) -> list[Categ
             out.append(c)
             counts[c.kind] += 1
     return out
+
+
+def all_tags(db: Session) -> list[Tag]:
+    return list(db.scalars(select(Tag).order_by(Tag.name)))
 
 
 def tags_from_text(db: Session, text: str) -> list[Tag]:
@@ -165,7 +185,10 @@ def variable_average(db: Session, month: date, window: int) -> dict[int, Decimal
     first = db.scalar(select(func.min(Transaction.date)))
     if not first:
         return {}
-    n = min(window, months_between(first, month))
+    # The month of the first entry is usually only partly recorded; counting it as a
+    # full month would drag the average down. Use it only while there is nothing else.
+    first_full = first if first.day == 1 else add_months(month_start(first), 1)
+    n = min(window, max(0, months_between(first_full, month))) or min(window, months_between(first, month))
     if n <= 0:
         return {}
     q = select(Transaction.category_id, Transaction.amount).where(
@@ -210,14 +233,15 @@ def forecast(db: Session, today: date, months: list[date]) -> Forecast:
     open planned items (including overdue ones) + the variable average scaled to
     the days left. Future months: recurring + planned + variable average.
     """
+    if not months:
+        return Forecast(months=months)
     current = month_start(today)
     fc = Forecast(months=months, averages=variable_average(db, current, avg_window(db)))
-    if not months:
-        return fc
     actuals = actual_by_month(db, months[0], min(month_end(months[-1]), today))
-    recurring = list(db.scalars(select(Recurring).where(Recurring.active.is_(True))))
+    recurring = list(db.scalars(select(Recurring).where(Recurring.active.is_(True))
+                                .options(selectinload(Recurring.skips))))
     skips = {r.id: {s.date for s in r.skips} for r in recurring}
-    planned = list(db.scalars(select(Planned).where(Planned.status == "planned")))
+    planned = list(db.scalars(select(Planned).where(Planned.status == PlanStatus.PLANNED)))
 
     for m in months:
         cells = defaultdict(Cell)
@@ -297,13 +321,15 @@ def kind_total(values: dict[int, Decimal], cats: dict[int, Category], kind: str)
 def upcoming(db: Session, today: date, days: int = 30) -> list[dict]:
     hi = today + timedelta(days=days)
     items = []
-    for r in db.scalars(select(Recurring).where(Recurring.active.is_(True))):
+    for r in db.scalars(select(Recurring).where(Recurring.active.is_(True))
+                        .options(selectinload(Recurring.skips), selectinload(Recurring.category))):
         skipped = {s.date for s in r.skips}
         for d in occurrences(r.start_date, r.frequency, r.end_date, today + timedelta(days=1), hi):
             if d not in skipped:
                 items.append({"date": d, "name": r.name, "amount": r.amount, "category": r.category,
                               "source": "recurring", "link": f"/recurring/{r.id}"})
-    for p in db.scalars(select(Planned).where(Planned.status == "planned", Planned.date <= hi)):
+    for p in db.scalars(select(Planned).where(Planned.status == PlanStatus.PLANNED, Planned.date <= hi)
+                        .options(selectinload(Planned.category))):
         items.append({"date": p.date, "name": p.name, "amount": p.amount, "category": p.category,
                       "source": "planned", "link": "/planned", "overdue": p.date < today})
     return sorted(items, key=lambda i: i["date"])
@@ -324,29 +350,43 @@ def asset_values_at(assets: list[Asset], as_of: date) -> dict[int, AssetValue]:
     return out
 
 
-def net_worth(assets: list[Asset], as_of: date) -> dict[str, Decimal]:
-    by_id = {a.id: a for a in assets}
-    vals = asset_values_at(assets, as_of)
-    total_assets = sum((v.value for aid, v in vals.items() if not by_id[aid].is_liability), ZERO)
-    total_liab = sum((v.value for aid, v in vals.items() if by_id[aid].is_liability), ZERO)
+def _totals(assets: list[Asset], vals: dict[int, AssetValue]) -> dict[str, Decimal]:
+    total_assets = sum((vals[a.id].value for a in assets if a.id in vals and not a.is_liability), ZERO)
+    total_liab = sum((vals[a.id].value for a in assets if a.id in vals and a.is_liability), ZERO)
     return {"assets": total_assets, "liabilities": total_liab, "net": total_assets - total_liab}
 
 
+def net_worth(assets: list[Asset], as_of: date) -> dict[str, Decimal]:
+    return _totals(assets, asset_values_at(assets, as_of))
+
+
 def net_worth_series(db: Session, today: date) -> list[dict]:
-    assets = list(db.scalars(select(Asset)))
-    first = db.scalar(select(func.min(AssetValue.date)))
-    if not first:
+    assets = list(db.scalars(select(Asset).options(selectinload(Asset.values))))
+    dates = [v.date for a in assets for v in a.values]
+    if not dates:
         return []
+    # One forward pass: each asset's values are sorted by date, so keep a position per
+    # asset instead of rescanning all its values for every month.
+    pos = {a.id: -1 for a in assets}
+    latest: dict[int, AssetValue] = {}
     series = []
-    for m in month_range(first, today):
-        point = net_worth(assets, min(month_end(m), today))
+    for m in month_range(min(dates), today):
+        as_of = min(month_end(m), today)
+        for a in assets:
+            i = pos[a.id]
+            while i + 1 < len(a.values) and a.values[i + 1].date <= as_of:
+                i += 1
+            if i >= 0:
+                latest[a.id] = a.values[i]
+            pos[a.id] = i
+        point = _totals(assets, latest)
         point["month"] = m
         series.append(point)
     return series
 
 
 def liquid_balance(db: Session, today: date) -> Decimal | None:
-    assets = list(db.scalars(select(Asset).where(Asset.type.in_(LIQUID_TYPES),
-                                                 Asset.archived.is_(False))))
+    assets = list(db.scalars(select(Asset).where(Asset.type.in_(LIQUID_TYPES), Asset.archived.is_(False))
+                             .options(selectinload(Asset.values))))
     vals = asset_values_at(assets, today)
     return sum((v.value for v in vals.values()), ZERO) if vals else None

@@ -2,27 +2,20 @@ from datetime import date
 
 from fastapi import APIRouter, Depends, Form, Request
 from sqlalchemy import func, select, update
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
-from ..models import Attachment, Category, Item, Planned, Transaction
+from ..models import Attachment, Item, Planned, PlanStatus, Transaction
 from ..services import ZERO, category_choices
-from ..web import UserError, get_db, money, parse_amount, parse_date, parse_int, redirect, render
+from ..web import UserError, get_db, money, parse_amount, parse_category, parse_date, parse_int, redirect, render
 
 router = APIRouter()
 
 
-def _category(db: Session, category_id: str) -> Category:
-    cat = db.get(Category, parse_int(category_id) or 0)
-    if not cat:
-        raise UserError("Please pick a category.")
-    return cat
-
-
 @router.get("/planned")
 def planned_list(request: Request, edit: int | None = None, db: Session = Depends(get_db)):
-    items = list(db.scalars(select(Planned).order_by(Planned.date)))
-    open_items = [p for p in items if p.status == "planned"]
-    closed = sorted((p for p in items if p.status != "planned"), key=lambda p: p.date, reverse=True)
+    items = list(db.scalars(select(Planned).order_by(Planned.date).options(selectinload(Planned.category))))
+    open_items = [p for p in items if p.status == PlanStatus.PLANNED]
+    closed = sorted((p for p in items if p.status != PlanStatus.PLANNED), key=lambda p: p.date, reverse=True)
     editing = db.get(Planned, edit) if edit else None
     file_counts = dict(db.execute(select(Attachment.planned_id, func.count()).where(Attachment.planned_id.is_not(None))
                                   .group_by(Attachment.planned_id)).all())
@@ -39,12 +32,12 @@ def planned_list(request: Request, edit: int | None = None, db: Session = Depend
 def planned_save(pid: str = Form(""), name: str = Form(""), amount: str = Form(""),
                  planned_date: str = Form("", alias="date"), category_id: str = Form(""),
                  note: str = Form(""), db: Session = Depends(get_db)):
-    cat = _category(db, category_id)
+    cat = parse_category(db, category_id)
     if not name.strip():
         raise UserError("Please give the planned item a name.")
     p = db.get(Planned, parse_int(pid)) if pid else None
     if not p:
-        p = Planned(status="planned")
+        p = Planned(status=PlanStatus.PLANNED)
     p.name = name.strip()[:100]
     p.amount = parse_amount(amount)
     p.date = parse_date(planned_date)
@@ -60,12 +53,12 @@ def planned_record(pid: int, amount: str = Form(""), paid_date: str = Form("", a
                    db: Session = Depends(get_db)):
     """Turn a planned item into an actual entry once it has been paid/received."""
     p = db.get(Planned, pid)
-    if not p or p.status != "planned":
+    if not p or p.status != PlanStatus.PLANNED:
         return redirect("/planned")
     entry = Transaction(amount=parse_amount(amount) if amount else p.amount,
                         date=parse_date(paid_date, date.today()), category_id=p.category_id,
                         note=p.name, one_off=True, planned_id=p.id)
-    p.status = "done"
+    p.status = PlanStatus.DONE
     db.add(entry)
     db.flush()
     # Quotes, invoices and warranty items move along to the real entry.
@@ -79,7 +72,7 @@ def planned_record(pid: int, amount: str = Form(""), paid_date: str = Form("", a
 def planned_cancel(pid: int, db: Session = Depends(get_db)):
     p = db.get(Planned, pid)
     if p:
-        p.status = "planned" if p.status == "cancelled" else "cancelled"
+        p.status = PlanStatus.PLANNED if p.status == PlanStatus.CANCELLED else PlanStatus.CANCELLED
         db.commit()
     return redirect("/planned")
 

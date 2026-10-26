@@ -6,6 +6,7 @@ reachable as host.docker.internal (see docker-compose.yml and the README).
 import json
 import os
 import re
+import time
 import urllib.error
 import urllib.request
 from collections.abc import Iterator
@@ -48,16 +49,27 @@ def _open(url: str, path: str, payload: dict | None = None, timeout: float = 10)
         raise AiError(f"Ollama is not reachable at {url} ({getattr(e, 'reason', e)}).")
 
 
+STATUS_TIMEOUT = 2
+FAILURE_TTL = 30  # seconds a failed check is remembered, so a down server doesn't slow every page load
+_failed: dict[str, tuple[float, dict]] = {}
+
+
 def status(url: str) -> dict:
     """{"ok", "version", "models": [{"name", "size"}], "detail"} for the Settings page."""
+    cached = _failed.get(url)
+    if cached and time.monotonic() - cached[0] < FAILURE_TTL:
+        return cached[1]
     try:
-        with _open(url, "/api/version", timeout=5) as r:
+        with _open(url, "/api/version", timeout=STATUS_TIMEOUT) as r:
             version = json.load(r).get("version", "")
-        with _open(url, "/api/tags", timeout=5) as r:
+        with _open(url, "/api/tags", timeout=STATUS_TIMEOUT) as r:
             models = [{"name": m["name"], "size": m.get("details", {}).get("parameter_size", "")}
                       for m in json.load(r).get("models", [])]
     except AiError as e:
-        return {"ok": False, "version": "", "models": [], "detail": str(e)}
+        result = {"ok": False, "version": "", "models": [], "detail": str(e)}
+        _failed[url] = (time.monotonic(), result)
+        return result
+    _failed.pop(url, None)
     return {"ok": True, "version": version, "models": sorted(models, key=lambda m: m["name"]),
             "detail": f"Ollama {version}, {len(models)} model{'s' if len(models) != 1 else ''} installed"}
 
@@ -85,6 +97,14 @@ def chat(url: str, model: str, messages: list[dict], schema: dict | None = None)
     return THINK.sub("", answer.get("message", {}).get("content", "")).strip()
 
 
+def _lines(response, url: str) -> Iterator[bytes]:
+    """The lines of a streamed answer; a dropped connection or timeout becomes an AiError."""
+    try:
+        yield from response
+    except OSError as e:
+        raise AiError(f"The connection to Ollama at {url} was lost ({getattr(e, 'reason', e)}).")
+
+
 def chat_stream(url: str, model: str, messages: list[dict]) -> Iterator[tuple[str, str]]:
     """Yields ("thinking" | "text", chunk) while the model writes its answer."""
     if not model:
@@ -93,10 +113,13 @@ def chat_stream(url: str, model: str, messages: list[dict]) -> Iterator[tuple[st
                "options": {"temperature": 0.3, "num_ctx": context_size(messages)}}
     in_think = False
     with _open(url, "/api/chat", payload, timeout=CHAT_TIMEOUT) as r:
-        for line in r:
+        for line in _lines(r, url):
             if not line.strip():
                 continue
-            part = json.loads(line)
+            try:
+                part = json.loads(line)
+            except ValueError:
+                raise AiError("Ollama sent an answer that could not be read. Try again.")
             if part.get("error"):
                 raise AiError(f"Ollama said: {part['error']}")
             message = part.get("message", {})
@@ -105,7 +128,10 @@ def chat_stream(url: str, model: str, messages: list[dict]) -> Iterator[tuple[st
             text = message.get("content", "")
             # Older Ollama versions put a reasoning model's thoughts inline in <think> tags.
             if "<think>" in text:
-                in_think, text = True, text.split("<think>", 1)[1]
+                before, text = text.split("<think>", 1)
+                in_think = True
+                if before.strip():
+                    yield "text", before
             if in_think:
                 if "</think>" not in text:
                     yield "thinking", text

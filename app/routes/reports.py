@@ -9,12 +9,12 @@ from ..fiscal import (
     fiscal_month_index, fiscal_quarter, fy_label, fy_months, fy_of, fy_start, month_end, month_start,
     quarter_label,
 )
-from ..models import EXPENSE, INCOME, Planned, Tag
+from ..models import EXPENSE, INCOME, Planned, PlanStatus
 from ..services import (
-    ZERO, actual_by_month, avg_window, budget_by_month, build_rows, category_map, forecast, forecast_months,
-    kind_total, liquid_balance, rollup, sum_months,
+    ZERO, Forecast, actual_by_month, all_tags, avg_window, budget_by_month, build_rows, category_map, forecast,
+    forecast_months, kind_total, liquid_balance, rollup, sum_months,
 )
-from ..web import get_db, parse_int, render
+from ..web import get_db, parse_fy, parse_int, render
 
 router = APIRouter()
 
@@ -36,14 +36,12 @@ def _step(view: str, fy: int, n: int, delta: int) -> tuple[int, int]:
     return idx // count, idx % count + 1
 
 
-def _projection(db: Session, today: date, months: list[date], actual_bm) -> dict[int, object] | None:
+def _projection(fc: Forecast, current: date, months: list[date], actual_bm) -> dict[int, object] | None:
     """Actuals for closed months + forecast for the current and future months."""
-    current = month_start(today)
-    open_months = [m for m in months if m >= current]
+    open_months = fc.months
     if not open_months:
         return None
     projected = sum_months(actual_bm, [m for m in months if m < current])
-    fc = forecast(db, today, open_months)
     for m in open_months:
         for cid, cell in fc.cells[m].items():
             projected[cid] += cell.total
@@ -51,12 +49,12 @@ def _projection(db: Session, today: date, months: list[date], actual_bm) -> dict
 
 
 @router.get("/reports")
-def reports(request: Request, view: str = "month", fy: int | None = None, n: int | None = None,
+def reports(request: Request, view: str = "month", fy: str | None = None, n: int | None = None,
             tag: str | None = None, db: Session = Depends(get_db)):
     today = date.today()
     current = month_start(today)
     view = view if view in VIEWS else "month"
-    fy = fy if fy is not None else fy_of(today)
+    fy = parse_fy(fy) or fy_of(today)
     if n is None:
         n = {"month": fiscal_month_index(today), "quarter": fiscal_quarter(today), "year": 1}[view] \
             if fy == fy_of(today) else 1
@@ -69,11 +67,12 @@ def reports(request: Request, view: str = "month", fy: int | None = None, n: int
     actual = sum_months(actual_bm, months)
     columns = {"actual": actual}
     budget_bm = {}
-    projected = None
+    projected = fc = None
     if not tag_id:  # budgets and forecasts don't apply to a tag slice
         budget_bm = budget_by_month(db, months)
         columns["budget"] = sum_months(budget_bm, months)
-        projected = _projection(db, today, months, actual_bm)
+        fc = forecast(db, today, [m for m in months if m >= current])
+        projected = _projection(fc, current, months, actual_bm)
         if projected is not None:
             columns["projected"] = projected
 
@@ -107,7 +106,6 @@ def reports(request: Request, view: str = "month", fy: int | None = None, n: int
 
     trend = []
     if len(months) > 1:
-        fc = forecast(db, today, [m for m in months if m >= current]) if not tag_id else None
         for m in months:
             a = actual_bm.get(m, {})
             point = {"month": m, "income": kind_total(a, cats, INCOME),
@@ -135,7 +133,7 @@ def reports(request: Request, view: str = "month", fy: int | None = None, n: int
     prev, nxt = _step(view, fy, n, -1), _step(view, fy, n, 1)
     return render(
         request, "reports.html", view=view, fy=fy, n=n, label=label, months=months,
-        tag_id=tag_id, tags=list(db.scalars(select(Tag).order_by(Tag.name))),
+        tag_id=tag_id, tags=all_tags(db),
         prev=prev, next=nxt, columns=list(columns), summary=summary,
         expense_rows=expense_rows, expense_totals=expense_totals,
         income_rows=income_rows, income_totals=income_totals,
@@ -224,7 +222,7 @@ def forecast_page(request: Request, db: Session = Depends(get_db)):
                              "datasets": [{"label": "Cumulative savings", "role": "net",
                                            "data": [r["cumulative"] for r in rows]}]}
 
-    planned = list(db.scalars(select(Planned).where(Planned.status == "planned").order_by(Planned.date)))
+    planned = list(db.scalars(select(Planned).where(Planned.status == PlanStatus.PLANNED).order_by(Planned.date)))
     return render(
         request, "forecast.html", rows=rows, months=months, charts=charts, planned=planned,
         start_balance=start_balance, this_fy=this_fy, next_fy=next_fy,

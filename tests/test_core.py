@@ -8,7 +8,7 @@ from app.fiscal import fiscal_quarter, fy_label, fy_months, fy_of
 from app.models import Budget, Category, Planned, Recurring, RecurringSkip, Transaction
 from app.recurring import materialize, occurrences
 from app.services import budget_for_month, forecast, forecast_months, variable_average
-from app.web import UserError, parse_amount
+from app.web import UserError, parse_amount, parse_fy, safe_next
 
 
 def cat(db, name):
@@ -108,3 +108,95 @@ def test_forecast_combines_sources(db):
     assert nov[rent.id].recurring == D("2000")
     assert nov[car.id].planned == D("30000")
     assert nov[groceries.id].variable == D("600")
+
+
+@pytest.mark.parametrize("url", ["https://evil.com", "//evil.com", "/\\evil.com", "\\\\evil.com",
+                                 "/\\/evil.com", "evil.com", ""])
+def test_safe_next_rejects_offsite(url):
+    assert safe_next(url, "/home") == "/home"
+
+
+@pytest.mark.parametrize("url", ["/", "/entries?month=2026-10", "/categories#tags"])
+def test_safe_next_keeps_local_paths(url):
+    assert safe_next(url) == url
+
+
+@pytest.mark.parametrize("text", ["NaN", "-nan", "Infinity", "inf", "1e999999", "10000000000", "5 + 9999999999.99"])
+def test_parse_amount_rejects_non_finite_and_too_large(text):
+    with pytest.raises(UserError):
+        parse_amount(text)
+
+
+def test_parse_amount_accepts_the_largest_storable_amount():
+    assert parse_amount("9,999,999,999.99") == D("9999999999.99")
+
+
+@pytest.mark.parametrize("value, fy", [("2026", 2026), (2025, 2025), ("", None), (None, None), ("abc", None),
+                                       ("0", None), ("10000", None)])
+def test_parse_fy(value, fy):
+    assert parse_fy(value) == fy
+
+
+def test_variable_average_skips_a_partly_recorded_first_month(db):
+    groceries = cat(db, "Groceries")
+    db.add(Transaction(date=date(2026, 5, 25), amount=D("100"), category_id=groceries.id))  # started late in May
+    for month in (6, 7, 8):
+        db.add(Transaction(date=date(2026, month, 10), amount=D("600"), category_id=groceries.id))
+    db.commit()
+    assert variable_average(db, date(2026, 9, 1), 6)[groceries.id] == D("600")  # Jun-Aug, not (100+1800)/4
+    # While the partial month is all there is, it is still used
+    assert variable_average(db, date(2026, 6, 1), 6)[groceries.id] == D("100")
+
+
+def test_materialize_uses_skips_and_existing_entries(db):
+    rent = cat(db, "Rent / Mortgage")
+    r = Recurring(name="Rent", amount=D("2000"), category_id=rent.id, frequency="monthly",
+                  start_date=date(2026, 1, 1), active=True)
+    db.add(r)
+    db.commit()
+    db.add(RecurringSkip(recurring_id=r.id, date=date(2026, 2, 1)))
+    db.add(Transaction(date=date(2026, 3, 1), amount=D("2000"), category_id=rent.id, recurring_id=r.id,
+                       occurrence_date=date(2026, 3, 1)))
+    db.commit()
+    assert materialize(db, date(2026, 4, 15)) == 2  # Jan and Apr; Feb skipped, Mar exists
+    assert materialize(db, date(2026, 4, 15)) == 0
+
+
+def test_net_worth_series_matches_month_by_month(db):
+    from app.models import Asset, AssetValue
+    from app.services import net_worth, net_worth_series
+    bank = Asset(name="Bank", type="bank")
+    car = Asset(name="Car", type="vehicle")
+    loan = Asset(name="Loan", type="loan")
+    db.add_all([bank, car, loan])
+    db.flush()
+    for asset, day, value in [(bank, date(2025, 11, 3), 1000), (bank, date(2026, 1, 20), 2500),
+                              (bank, date(2026, 1, 28), 2400), (car, date(2025, 12, 1), 20000),
+                              (loan, date(2026, 2, 14), 8000), (bank, date(2026, 4, 2), 3100)]:
+        db.add(AssetValue(asset_id=asset.id, date=day, value=D(value)))
+    db.commit()
+    today = date(2026, 4, 10)
+    series = net_worth_series(db, today)
+    assets = [bank, car, loan]
+    from app.fiscal import month_end
+    assert [p["month"] for p in series] == [date(2025, 11, 1), date(2025, 12, 1), date(2026, 1, 1),
+                                            date(2026, 2, 1), date(2026, 3, 1), date(2026, 4, 1)]
+    for p in series:
+        expected = net_worth(assets, min(month_end(p["month"]), today))
+        assert {k: p[k] for k in expected} == expected
+    assert series[-1]["net"] == D(3100 + 20000 - 8000)
+
+
+def test_category_list_is_cached_per_request_until_a_write(db):
+    from app.services import all_categories
+    db.info["cache"] = True
+    first = all_categories(db)
+    assert all_categories(db) is first
+    db.add(Category(name="Aardvarks", kind="expense"))
+    db.flush()
+    assert all_categories(db)[0].name == "Aardvarks"
+
+
+def test_sqlite_enforces_foreign_keys(db):
+    from sqlalchemy import text
+    assert db.execute(text("PRAGMA foreign_keys")).scalar() == 1

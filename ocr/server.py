@@ -8,6 +8,7 @@ Uses only the Python standard library plus the tesseract and poppler command
 line tools. PDFs with a text layer are read directly (fast); scanned PDFs are
 rendered page by page and run through Tesseract.
 """
+import functools
 import json
 import os
 import subprocess
@@ -41,9 +42,16 @@ def read_pdf(path: Path, work: Path) -> str:
     return "\n".join(tesseract(p) for p in sorted(work.glob("page*.png")))
 
 
+@functools.cache  # the installed Tesseract doesn't change while the container runs
 def version() -> str:
     first = run("tesseract", "--version", both=True).splitlines()
     return first[0].split()[-1] if first else ""
+
+
+@functools.cache
+def languages() -> list[str]:
+    langs = run("tesseract", "--list-langs", both=True).splitlines()[1:]  # first line is a heading
+    return [x.strip() for x in langs if x.strip() and x.strip() != "osd"]
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -58,9 +66,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path != "/health":
             return self._send(404, {"error": "not found"})
-        langs = run("tesseract", "--list-langs", both=True).splitlines()[1:]  # first line is a heading
-        self._send(200, {"ok": True, "version": version(),
-                         "languages": [x.strip() for x in langs if x.strip() and x.strip() != "osd"]})
+        self._send(200, {"ok": True, "version": version(), "languages": languages()})
 
     def do_POST(self):
         if self.path != "/ocr":

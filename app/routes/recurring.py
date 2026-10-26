@@ -2,22 +2,20 @@ from datetime import date
 
 from fastapi import APIRouter, Depends, Form, Request
 from sqlalchemy import select, update
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
-from ..models import EXPENSE, Category, Recurring, Tag, Transaction
+from ..models import EXPENSE, Recurring, Transaction
 from ..recurring import FREQUENCIES, ensure_up_to_date, monthly_equivalent, next_occurrence, skip_past
-from ..services import ZERO, category_choices, tags_from_text
+from ..services import ZERO, all_tags, category_choices, tags_from_text
 from ..web import (
-    UserError, get_db, parse_amount, parse_date, parse_int, parse_optional_date, redirect, render,
+    UserError, get_db, parse_amount, parse_category, parse_date, parse_optional_date, redirect, render,
 )
 
 router = APIRouter()
 
 
 def _apply_form(db: Session, r: Recurring, name, amount, category_id, frequency, start_date, end_date, tags):
-    cat = db.get(Category, parse_int(category_id) or 0)
-    if not cat:
-        raise UserError("Please pick a category.")
+    cat = parse_category(db, category_id)
     if frequency not in FREQUENCIES:
         raise UserError("Please pick how often it repeats.")
     r.name = name.strip()[:100] or cat.name
@@ -34,7 +32,8 @@ def _apply_form(db: Session, r: Recurring, name, amount, category_id, frequency,
 @router.get("/recurring")
 def recurring_list(request: Request, db: Session = Depends(get_db)):
     today = date.today()
-    items = list(db.scalars(select(Recurring).order_by(Recurring.active.desc(), Recurring.name)))
+    items = list(db.scalars(select(Recurring).order_by(Recurring.active.desc(), Recurring.name)
+                            .options(selectinload(Recurring.category), selectinload(Recurring.skips))))
     rows = []
     totals = {"expense": ZERO, "income": ZERO}
     for r in items:
@@ -51,7 +50,7 @@ def recurring_list(request: Request, db: Session = Depends(get_db)):
 def recurring_new(request: Request, db: Session = Depends(get_db)):
     r = Recurring(name="", amount=None, frequency="monthly", start_date=date.today(), active=True)
     return render(request, "recurring_form.html", r=r, kind=EXPENSE, categories=category_choices(db),
-                  tags=list(db.scalars(select(Tag).order_by(Tag.name))))
+                  tags=all_tags(db))
 
 
 @router.get("/recurring/{rid}")
@@ -62,7 +61,7 @@ def recurring_edit(request: Request, rid: int, db: Session = Depends(get_db)):
     recent = list(db.scalars(select(Transaction).where(Transaction.recurring_id == rid)
                              .order_by(Transaction.date.desc()).limit(12)))
     return render(request, "recurring_form.html", r=r, kind=r.category.kind, recent=recent,
-                  categories=category_choices(db), tags=list(db.scalars(select(Tag).order_by(Tag.name))))
+                  categories=category_choices(db), tags=all_tags(db))
 
 
 @router.post("/recurring")

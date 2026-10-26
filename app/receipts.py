@@ -32,7 +32,10 @@ def _plain(text: str) -> str:
 # --- amounts --------------------------------------------------------------------
 
 # 1,234.56 / 1234.56 (English) or 1 234,56 / 1234,56 (French)
-MONEY = re.compile(r"(?<![\d.,])(?:(\d{1,3}(?:,\d{3})+|\d+)\s?\.\s?(\d{2})|(\d{1,3}(?: \d{3})+|\d+)\s?,\s?(\d{2}))(?![\d])")
+MONEY = re.compile(r"(?<![\d.,])(?:"
+                   r"(\d{1,3}(?:,\d{3})+|\d+)\s?\.\s?(\d{2})"    # English
+                   r"|(\d{1,3}(?: \d{3})+|\d+)\s?,\s?(\d{2})"    # French
+                   r")(?![\d])")
 TOTAL = r"t\s?[o0]\s?t\s?a\s?[l1i]"
 STRONG = re.compile(rf"grand {TOTAL}|{TOTAL} (due|a payer|ttc)|amount due|balance due|montant (du|total)"
                     r"|net a payer|a payer")

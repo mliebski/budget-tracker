@@ -18,11 +18,11 @@ from sqlalchemy.orm import Session, selectinload
 
 from . import ai
 from .db import SessionLocal
-from .fiscal import add_months, fy_label, fy_of, month_end, month_start
+from .fiscal import add_months, fy_label, fy_months, fy_of, month_end, month_start
 from .models import (
-    EXPENSE, INCOME, AiReport, Asset, Budget, Category, Planned, Recurring, Transaction,
+    EXPENSE, INCOME, AiReport, Asset, Budget, Category, Planned, PlanStatus, Recurring, RunStatus, Transaction,
 )
-from .recurring import FREQUENCIES, occurrences
+from .recurring import FREQUENCIES, next_occurrence
 from .services import ZERO, category_map, forecast, rollup
 
 log = logging.getLogger("budget")
@@ -91,17 +91,17 @@ def snapshot(db: Session, today: date, for_chat: bool = False) -> str:
     fy = fy_of(today)
     lines = [
         f"Today is {today:%A %d %B %Y}. All amounts are Canadian dollars (CAD).",
-        f"The budget year runs October to September; {fy_label(fy)} is the current one.",
+        f"The budget year runs {fy_months(fy)[0]:%B} to {fy_months(fy)[-1]:%B}; {fy_label(fy)} is the current one.",
         f"{current:%B %Y} is not finished yet: its numbers are only up to today "
         f"(day {today.day} of {month_end(today).day}).",
         "",
         f"## Spending per month by category, last {HISTORY_MONTHS} months (one-off purchases excluded)",
         *_monthly_table(regular, months, cats, EXPENSE),
         "",
-        "## One-off purchases (big or unusual; not part of normal spending)",
-        "date,category,amount,note",
-        *([_row(t.date, cats[t.category_id].full_name, _n(t.amount), t.note) for t in one_offs
-           if cats[t.category_id].kind == EXPENSE] or ["(none)"]),
+        "## One-off purchases and income (big or unusual; not part of normal spending or income)",
+        "date,category,type,amount,note",
+        *([_row(t.date, cats[t.category_id].full_name, cats[t.category_id].kind, _n(t.amount), t.note)
+           for t in one_offs] or ["(none)"]),
         "",
         f"## Income per month by category, last {HISTORY_MONTHS} months",
         *_monthly_table(regular, months, cats, INCOME),
@@ -109,18 +109,17 @@ def snapshot(db: Session, today: date, for_chat: bool = False) -> str:
         "## Recurring items (added automatically on their due dates)",
         "name,category,type,amount,frequency,next due,ends",
     ]
-    recurring = list(db.scalars(select(Recurring).where(Recurring.active.is_(True)).order_by(Recurring.name)))
+    recurring = list(db.scalars(select(Recurring).where(Recurring.active.is_(True)).order_by(Recurring.name)
+                                .options(selectinload(Recurring.skips))))
     for r in recurring:
-        skipped = {s.date for s in r.skips}
-        nxt = next((d for d in occurrences(r.start_date, r.frequency, r.end_date, today + timedelta(days=1),
-                                           today + timedelta(days=400)) if d not in skipped), None)
+        nxt = next_occurrence(r, today)
         lines.append(_row(r.name, r.category.full_name, r.category.kind, _n(r.amount),
                           FREQUENCIES[r.frequency][0], nxt or "none", r.end_date))
     if not recurring:
         lines.append("(none)")
 
     lines += ["", "## Planned future purchases or income", "date,name,category,type,amount"]
-    planned = list(db.scalars(select(Planned).where(Planned.status == "planned").order_by(Planned.date)))
+    planned = list(db.scalars(select(Planned).where(Planned.status == PlanStatus.PLANNED).order_by(Planned.date)))
     lines += [_row(p.date, p.name, p.category.full_name, p.category.kind, _n(p.amount)) for p in planned] \
         or ["(none)"]
 
@@ -131,7 +130,8 @@ def snapshot(db: Session, today: date, for_chat: bool = False) -> str:
 
     lines += ["", "## Assets and debts (latest value; debts are amounts owed)",
               "name,type,asset or debt,latest value,as of,expected change per year %,earlier values"]
-    assets = list(db.scalars(select(Asset).where(Asset.archived.is_(False)).order_by(Asset.name)))
+    assets = list(db.scalars(select(Asset).where(Asset.archived.is_(False)).order_by(Asset.name)
+                             .options(selectinload(Asset.values))))
     for a in assets:
         latest = a.values[-1] if a.values else None
         earlier = " ".join(f"{v.date:%Y-%m}:{_n(v.value)}" for v in a.values[-7:-1])
@@ -254,19 +254,19 @@ def run_report(report_id: int, today: date | None = None) -> None:
             except ValueError:
                 raise ai.AiError("The model did not return a readable report. Try again or pick a larger model.")
             report.result = json.dumps(result)
-            report.status = "done"
+            report.status = RunStatus.DONE
         except ai.AiError as e:
-            report.status, report.error = "failed", str(e)[:500]
+            report.status, report.error = RunStatus.FAILED, str(e)[:500]
         except Exception as e:  # never leave a report "running" forever
             log.exception("AI report %s failed", report_id)
-            report.status, report.error = "failed", f"Unexpected error: {e}"[:500]
+            report.status, report.error = RunStatus.FAILED, f"Unexpected error: {e}"[:500]
         report.finished_at = datetime.now()
         db.commit()
 
 
 def start_report(db: Session, kind: str) -> AiReport:
     _, model = ai.config(db)
-    report = AiReport(kind=kind, model=model or "", status="running")
+    report = AiReport(kind=kind, model=model or "", status=RunStatus.RUNNING)
     db.add(report)
     db.commit()
     threading.Thread(target=run_report, args=(report.id,), daemon=True, name=f"ai-report-{report.id}").start()
@@ -274,11 +274,19 @@ def start_report(db: Session, kind: str) -> AiReport:
 
 
 STALE = timedelta(minutes=20)
+INTERRUPTED = "Interrupted (the app restarted while the report was running)."
+
+
+def fail_interrupted(db: Session) -> None:
+    """At startup: no report thread survives a restart, so any run still 'running' is dead."""
+    for report in db.scalars(select(AiReport).where(AiReport.status == RunStatus.RUNNING)):
+        report.status, report.error, report.finished_at = RunStatus.FAILED, INTERRUPTED, datetime.now()
+    db.commit()
 
 
 def is_stale(report: AiReport, now: datetime | None = None) -> bool:
     """A run that never finished, e.g. because the app restarted while it was working."""
-    return report.status == "running" and (now or datetime.now()) - report.created_at > STALE
+    return report.status == RunStatus.RUNNING and (now or datetime.now()) - report.created_at > STALE
 
 
 # --- the app's own numbers, for comparison ---------------------------------------------
@@ -306,7 +314,8 @@ def app_income_forecast(db: Session, today: date) -> dict[str, Decimal]:
 def app_asset_projection(db: Session) -> list[dict]:
     """Latest value grown at the asset's rate, compounded yearly."""
     rows = []
-    for a in db.scalars(select(Asset).where(Asset.archived.is_(False)).order_by(Asset.name)):
+    for a in db.scalars(select(Asset).where(Asset.archived.is_(False)).order_by(Asset.name)
+                        .options(selectinload(Asset.values))):
         if not a.values:
             continue
         now = a.values[-1].value

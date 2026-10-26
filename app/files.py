@@ -82,7 +82,7 @@ def store(data: bytes) -> Stored:
         if data[4:12] in (b"ftypheic", b"ftypheix", b"ftypmif1", b"ftyphevc"):
             raise UploadError("HEIC photos aren't supported. On iPhone, set Camera › Formats to "
                               "“Most Compatible”, or take the photo from the upload button.")
-        raise UploadError("Only photos (JPEG, PNG, WebP) and PDF files can be uploaded.")
+        raise UploadError("Only photos (JPEG, PNG, WebP, …) and PDF files can be uploaded.")
     img = ImageOps.exif_transpose(img)
     if img.mode not in ("RGB", "L"):
         img = img.convert("RGB")
@@ -110,8 +110,8 @@ def remove(stored_name: str) -> None:
 
 def ocr_image(stored_name: str) -> bytes:
     """A version of a stored photo prepared for OCR: greyscale, sharp enough, PNG."""
-    img = Image.open(path_of(stored_name))
-    img = ImageOps.grayscale(img)
+    with Image.open(path_of(stored_name)) as photo:
+        img = ImageOps.grayscale(photo)
     if max(img.size) < 1600:  # small photos read much better when enlarged
         factor = 1600 / max(img.size)
         img = img.resize((round(img.width * factor), round(img.height * factor)), Image.LANCZOS)

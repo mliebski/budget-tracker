@@ -105,3 +105,73 @@ def test_delete_used_category_is_refused(client, db):
     populate(client, db)
     r = client.post(f"/categories/{cat_id(db, 'Groceries')}/delete", follow_redirects=False)
     assert "error=1" in r.headers["location"]
+
+
+@pytest.mark.parametrize("url", ["/entries?fy=0", "/entries?fy=10000", "/entries?fy=abc", "/reports?fy=0&view=year",
+                                 "/reports?fy=99999", "/budgets?fy=0", "/budgets?fy=abc"])
+def test_bad_fiscal_year_falls_back_instead_of_crashing(client, url):
+    assert client.get(url).status_code == 200
+
+
+def test_budget_form_rejects_bad_input(client, db):
+    from app.fiscal import fy_of
+    fy = fy_of(date.today())
+    food = cat_id(db, "Groceries")
+    for data in ({"fy": "abc", f"m_{food}": "100"}, {f"m_{food}": "100"}, {"fy": "0", f"m_{food}": "100"},
+                 {"fy": fy, f"m_{food}": "0", f"a_{food}": "500", f"am_{food}": "13"}):
+        r = client.post("/budgets", data=data, follow_redirects=False)
+        assert r.status_code == 303 and "error=1" in r.headers["location"]
+    # Unknown category ids and odd field names are ignored, not a crash
+    r = client.post("/budgets", data={"fy": fy, "m_99999": "100", "m_x": "5", f"m_{food}": "250"},
+                    follow_redirects=False)
+    assert r.status_code == 303 and "error" not in r.headers["location"]
+    from app.models import Budget
+    assert [(b.category_id, b.monthly) for b in db.scalars(select(Budget))] == [(food, 250)]
+    r = client.post("/budgets/copy", data={"fy": "abc"}, follow_redirects=False)
+    assert r.status_code == 303 and "error=1" in r.headers["location"]
+
+
+def test_undo_button_only_for_an_entry_id(client):
+    assert "/entries/42/delete" in client.get("/?msg=Added&undo=42").text
+    page = client.get("/?msg=Added&undo=../../categories/5").text
+    assert "categories/5/delete" not in page and "Undo" not in page
+
+
+def test_tag_rename_messages(client, db):
+    from app.models import Tag
+    client.post("/entries", data={"amount": "5", "category_id": cat_id(db, "Groceries"), "tags": "Shop"})
+    tag = db.scalar(select(Tag))
+    assert "no+longer+exists" in client.post("/tags/9999", data={"name": "X"}, follow_redirects=False).headers["location"]
+    r = client.post(f"/tags/{tag.id}", data={"name": "  "}, follow_redirects=False)
+    assert "error=1" in r.headers["location"]
+
+
+def test_tag_delete_also_clears_recurring_items(client, db):
+    from app.models import Tag, recurring_tags
+    client.post("/recurring", data={"name": "Gym", "amount": "40", "category_id": cat_id(db, "Fitness"),
+                                    "frequency": "monthly", "tags": "Health"})
+    tag = db.scalar(select(Tag))
+    client.post(f"/tags/{tag.id}/delete")
+    assert db.execute(select(recurring_tags)).all() == []
+
+
+def test_settings_typo_gets_a_message(client):
+    r = client.post("/settings", data={"avg_months": "six", "warranty_days": "60"}, follow_redirects=False)
+    assert r.status_code == 303 and "error=1" in r.headers["location"]
+
+
+def test_entry_search_treats_percent_literally(client, db):
+    groceries = cat_id(db, "Groceries")
+    client.post("/entries", data={"amount": "5", "category_id": groceries, "note": "50% off"})
+    client.post("/entries", data={"amount": "6", "category_id": groceries, "note": "500 points"})
+    page = client.get("/entries?q=50%25").text
+    assert "50% off" in page and "500 points" not in page
+
+
+def test_asset_value_returns_to_the_detail_page(client, db):
+    client.post("/assets", data={"name": "Chequing", "type": "bank"})
+    a = db.scalar(select(Asset))
+    r = client.post(f"/assets/{a.id}/value", data={"value": "100", "next": f"/assets/{a.id}"}, follow_redirects=False)
+    assert r.headers["location"].startswith(f"/assets/{a.id}?")
+    r = client.post(f"/assets/{a.id}/value", data={"value": "100", "next": "https://evil.com"}, follow_redirects=False)
+    assert r.headers["location"].startswith("/assets?")

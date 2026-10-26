@@ -1,5 +1,6 @@
 import datetime as dt
 from decimal import Decimal
+from enum import StrEnum
 
 from sqlalchemy import (
     Boolean, Column, Date, DateTime, ForeignKey, Integer, Numeric, String, Table, Text,
@@ -13,6 +14,29 @@ Money = Numeric(12, 2)
 
 EXPENSE, INCOME = "expense", "income"
 KINDS = {EXPENSE: "Expense", INCOME: "Income"}
+
+
+
+class PlanStatus(StrEnum):
+    """Planned.status"""
+    PLANNED = "planned"
+    DONE = "done"            # recorded as an entry
+    CANCELLED = "cancelled"
+
+
+class RunStatus(StrEnum):
+    """AiReport.status"""
+    RUNNING = "running"
+    DONE = "done"
+    FAILED = "failed"
+
+
+class OcrStatus(StrEnum):
+    """Attachment.ocr_status"""
+    NONE = "none"            # not read (yet), or OCR is switched off
+    DONE = "done"
+    FAILED = "failed"
+
 
 # type -> (label, is_liability)
 ASSET_TYPES = {
@@ -91,7 +115,7 @@ class Transaction(Base):
     recurring_id: Mapped[int | None] = mapped_column(ForeignKey("recurring.id", ondelete="SET NULL"))
     occurrence_date: Mapped[dt.date | None] = mapped_column(Date)
     planned_id: Mapped[int | None] = mapped_column(ForeignKey("planned.id", ondelete="SET NULL"))
-    created_at: Mapped[dt.datetime] = mapped_column(DateTime, server_default=func.now())
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=dt.datetime.now, server_default=func.now())
 
     category: Mapped[Category] = relationship()
     tags: Mapped[list[Tag]] = relationship(secondary=transaction_tags, order_by="Tag.name")
@@ -156,7 +180,7 @@ class Planned(Base):
     date: Mapped[dt.date] = mapped_column(Date)
     category_id: Mapped[int] = mapped_column(ForeignKey("categories.id"))
     note: Mapped[str] = mapped_column(String(255), default="")
-    status: Mapped[str] = mapped_column(String(10), default="planned")  # planned | done | cancelled
+    status: Mapped[str] = mapped_column(String(10), default=PlanStatus.PLANNED)
 
     category: Mapped[Category] = relationship()
 
@@ -226,7 +250,7 @@ class Item(Base):
     note: Mapped[str] = mapped_column(String(255), default="")
     transaction_id: Mapped[int | None] = mapped_column(ForeignKey("transactions.id", ondelete="SET NULL"))
     planned_id: Mapped[int | None] = mapped_column(ForeignKey("planned.id", ondelete="SET NULL"))
-    created_at: Mapped[dt.datetime] = mapped_column(DateTime, server_default=func.now())
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=dt.datetime.now, server_default=func.now())
 
     transaction: Mapped[Transaction | None] = relationship()
     planned: Mapped[Planned | None] = relationship()
@@ -257,12 +281,12 @@ class Attachment(Base):
     size: Mapped[int] = mapped_column(Integer)
     has_thumb: Mapped[bool] = mapped_column(Boolean, default=False)
     # OCR result: the raw text (for search) and what was read from it
-    ocr_status: Mapped[str] = mapped_column(String(10), default="none")  # none | done | failed
+    ocr_status: Mapped[str] = mapped_column(String(10), default=OcrStatus.NONE)
     ocr_text: Mapped[str] = mapped_column(Text, default="")
     store: Mapped[str] = mapped_column(String(100), default="")
     amount: Mapped[Decimal | None] = mapped_column(Money)
     doc_date: Mapped[dt.date | None] = mapped_column(Date)
-    uploaded_at: Mapped[dt.datetime] = mapped_column(DateTime, server_default=func.now())
+    uploaded_at: Mapped[dt.datetime] = mapped_column(DateTime, default=dt.datetime.now, server_default=func.now())
 
     transaction: Mapped[Transaction | None] = relationship()
     planned: Mapped[Planned | None] = relationship()
@@ -318,7 +342,7 @@ class AiReport(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     kind: Mapped[str] = mapped_column(String(20), index=True)       # expenses | income
-    status: Mapped[str] = mapped_column(String(10), default="running")  # running | done | failed
+    status: Mapped[str] = mapped_column(String(10), default=RunStatus.RUNNING)
     model: Mapped[str] = mapped_column(String(100))
     created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=dt.datetime.now)
     finished_at: Mapped[dt.datetime | None] = mapped_column(DateTime)
