@@ -30,6 +30,10 @@ services:
       BACKUP_DIR: /backups
       UPLOAD_DIR: /uploads
       OCR_URL: http://ocr:8080
+      # Ollama runs natively on the box; inside the container the box is "host.docker.internal".
+      OLLAMA_URL: ${OLLAMA_URL:-http://host.docker.internal:11434}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "${APP_PORT:-8000}:8000"
     volumes:

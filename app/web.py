@@ -13,14 +13,14 @@ from jinja2 import Undefined
 
 from . import fiscal
 from .db import SessionLocal
-from .models import ASSET_TYPES, DOC_TYPES, KINDS
+from .models import ASSET_TYPES, DEFAULT_GROWTH, DOC_TYPES, KINDS
 from .recurring import FREQUENCIES, ensure_up_to_date
 
 BASE_DIR = Path(__file__).parent
 
 NAV = [
     ("/", "Home"), ("/entries", "Entries"), ("/receipts", "Receipts"), ("/reports", "Reports"),
-    ("/forecast", "Forecast"), ("/budgets", "Budgets"), ("/recurring", "Recurring"), ("/planned", "Planned"),
+    ("/forecast", "Forecast"), ("/ai", "AI"), ("/budgets", "Budgets"), ("/recurring", "Recurring"), ("/planned", "Planned"),
     ("/assets", "Assets"), ("/categories", "Categories"), ("/settings", "Settings"),
 ]
 
@@ -106,7 +106,7 @@ def chart_json(spec: dict) -> str:
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 templates.env.filters.update(money=money, month=month_label)
 templates.env.globals.update(
-    NAV=NAV, KINDS=KINDS, DOC_TYPES=DOC_TYPES, static_url=static_url, FREQUENCIES=FREQUENCIES, ASSET_TYPES=ASSET_TYPES,
+    NAV=NAV, KINDS=KINDS, DOC_TYPES=DOC_TYPES, DEFAULT_GROWTH=DEFAULT_GROWTH, static_url=static_url, FREQUENCIES=FREQUENCIES, ASSET_TYPES=ASSET_TYPES,
     fy_label=fiscal.fy_label, percent=percent, chart_json=chart_json, bar=bar,
     month_name=lambda m: date(2000, m, 1).strftime("%B"),
     fy_month_numbers=fiscal.fy_month_numbers(),

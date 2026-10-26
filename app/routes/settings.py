@@ -5,7 +5,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, Form, Request
 from sqlalchemy.orm import Session
 
-from .. import files, ocr
+from .. import ai, files, ocr
 from ..db import engine
 from ..fiscal import FY_START_MONTH
 from ..services import avg_window, set_setting, warranty_days
@@ -26,8 +26,10 @@ def _backups() -> list[dict]:
 
 @router.get("/settings")
 def settings_page(request: Request, db: Session = Depends(get_db)):
+    ai_url, ai_model = ai.config(db)
     return render(request, "settings.html", window=avg_window(db), warranty_days=warranty_days(db),
                   ocr_status=ocr.status(), storage=files.usage(),
+                  ai_url=ai_url, ai_model=ai_model, ai_status=ai.status(ai_url), ai_default_url=ai.DEFAULT_URL,
                   files_backed_up=(BACKUP_DIR / "files").is_dir(), backups=_backups(),
                   backup_dir=str(BACKUP_DIR), backup_enabled=BACKUP_DIR.is_dir(),
                   database=engine.url.get_backend_name(), fy_start_month=FY_START_MONTH)

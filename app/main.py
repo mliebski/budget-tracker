@@ -6,7 +6,9 @@ from fastapi import FastAPI, Request
 from sqlalchemy.exc import OperationalError
 
 from .db import Base, SessionLocal, engine
+from .migrate import add_missing_columns
 from .routes import (
+    ai,
     assets, budgets, categories, dashboard, entries, planned, receipts, recurring, reports, settings,
     warranties,
 )
@@ -21,6 +23,7 @@ def init_db(retries: int = 30) -> None:
     for attempt in range(retries):
         try:
             Base.metadata.create_all(engine)
+            add_missing_columns(engine)
             break
         except OperationalError:
             if attempt == retries - 1:
@@ -41,7 +44,7 @@ app = FastAPI(title="Budget", lifespan=lifespan, docs_url=None, redoc_url=None)
 app.mount("/static", RevalidatingStaticFiles(directory=BASE_DIR / "static"), name="static")
 
 for module in (dashboard, entries, receipts, warranties, reports, budgets, recurring, planned, assets,
-               categories, settings):
+               categories, settings, ai):
     app.include_router(module.router)
 
 

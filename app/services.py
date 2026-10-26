@@ -20,7 +20,7 @@ from .recurring import occurrences
 
 ZERO = Decimal("0")
 
-DEFAULT_SETTINGS = {"avg_months": "6", "warranty_days": "60"}
+DEFAULT_SETTINGS = {"avg_months": "6", "warranty_days": "60", "ai_url": "", "ai_model": ""}
 
 
 # --- settings -----------------------------------------------------------------

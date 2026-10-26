@@ -21,7 +21,7 @@
     <li>
       <div class="grow">
         <a href="/assets/{{ a.id }}">{{ a.name }}</a>
-        <small class="muted block">{{ a.type_label }}{% if row.latest %} · as of {{ row.latest.date.strftime('%d %b %Y') }}{% endif %}</small>
+        <small class="muted block">{{ a.type_label }}{% if row.latest %} · as of {{ row.latest.date.strftime('%d %b %Y') }}{% endif %}{% if a.growth %} · {{ '%+g'|format(a.growth|float) }}%/yr{% endif %}</small>
       </div>
       <div class="num">
         {{ row.latest.value|money if row.latest else '–' }}
@@ -55,7 +55,10 @@
       <label class="field"><span>Current value / balance owed</span><input name="value" inputmode="decimal" placeholder="optional"></label>
       <label class="field"><span>As of</span><input type="date" name="value_date" value="{{ today.isoformat() }}"></label>
     </div>
-    <label class="field"><span>Note</span><input name="note" maxlength="255" placeholder="optional, e.g. account number ending"></label>
+    <div class="row">
+      <label class="field"><span>Expected change per year (%)</span><input name="growth" inputmode="decimal" placeholder="default by type"></label>
+      <label class="field grow"><span>Note</span><input name="note" maxlength="255" placeholder="optional, e.g. account number ending"></label>
+    </div>
     <button class="btn primary block">Add</button>
   </form>
   <p class="hint">Update values whenever you like (e.g. monthly from your statements). Liabilities are entered as the positive amount owed. Bank &amp; cash balances also seed the balance projection on the Forecast page.</p>

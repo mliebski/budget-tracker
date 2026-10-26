@@ -14,6 +14,28 @@
     <button class="btn primary">Save</button>
   </form>
 
+  <form class="card" method="post" action="/ai/settings" id="ai">
+    <h2>AI (local Ollama)</h2>
+    <ul class="list">
+      <li><span class="grow">Connection</span><span class="{{ 'pos' if ai_status.ok else 'neg' }}">{{ 'Working' if ai_status.ok else 'Not connected' }}</span></li>
+      <li><span class="grow muted">{{ ai_status.detail }}</span></li>
+    </ul>
+    <label class="field"><span>Ollama address</span>
+      <input name="ai_url" id="ai_url" value="{{ ai_url if ai_url != ai_default_url else '' }}" placeholder="{{ ai_default_url }}" autocomplete="off"></label>
+    <label class="field"><span>Model</span>
+      {% if ai_status.models %}
+      <select name="ai_model" id="ai_model">
+        <option value="">Choose a model…</option>
+        {% for m in ai_status.models %}<option value="{{ m.name }}"{{ ' selected' if m.name == ai_model }}>{{ m.name }}{{ ' · ' ~ m.size if m.size }}</option>{% endfor %}
+        {% if ai_model and ai_model not in ai_status.models|map(attribute='name')|list %}<option value="{{ ai_model }}" selected>{{ ai_model }} (not installed)</option>{% endif %}
+      </select>
+      {% else %}
+      <input name="ai_model" id="ai_model" value="{{ ai_model }}" placeholder="e.g. qwen3:8b" autocomplete="off">
+      {% endif %}</label>
+    <p class="hint">Your budget data is only sent to this address. Mid-size models (7–9B, e.g. qwen3:8b or llama3.1:8b) are a good balance on a mini PC; install one on the box with <code>ollama pull qwen3:8b</code>. Leave the address empty to use the default.</p>
+    <button class="btn primary">Save AI settings</button>
+  </form>
+
   <section class="card">
     <h2>Receipts &amp; OCR</h2>
     <ul class="list">

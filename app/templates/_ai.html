@@ -1,0 +1,63 @@
+{% macro ai_tabs(active) %}
+<nav class="seg links" aria-label="AI sections">
+  {% for key, label in [('expenses', 'Expense forecast'), ('income', 'Income & assets'), ('chat', 'Chat')] %}
+  <a href="/ai/{{ key }}"{{ ' class=on aria-current=page'|safe if active == key }}>{{ label }}</a>
+  {% endfor %}
+</nav>
+{% endmacro %}
+
+{% macro setup_notice(model) %}
+{% if not model %}
+<p class="note">No AI model chosen yet. Pick one in <a href="/settings#ai">Settings › AI</a>; it runs on the local Ollama on your box, so your data never leaves the house.</p>
+{% endif %}
+{% endmacro %}
+
+{# Generate button, progress while the model works, and the last error #}
+{% macro run_panel(kind, running, last_failed, model, months) %}
+<section class="card inline-card ai-run">
+  <div class="grow">
+    {% if running %}
+      <p class="busy" role="status" data-ai-poll="{{ running.id }}">Writing the report with {{ running.model }}… started {{ running.created_at.strftime('%H:%M') }}. On a mini PC this can take a few minutes; the page updates by itself.</p>
+    {% else %}
+      <p class="hint">Covers {{ months[0].strftime('%B %Y') }} to {{ months[-1].strftime('%B %Y') }}, based on all your entries{{ ', assets and growth rates' if kind == 'income' }}. The AI does the forecasting; the app's own forecast is shown next to it as a check.</p>
+    {% endif %}
+    {% if last_failed and not running %}<p class="neg">The last run failed: {{ last_failed.error }}</p>{% endif %}
+  </div>
+  <form method="post" action="/ai/{{ kind }}/run">
+    <button class="btn primary"{{ ' disabled' if running or not model }}>{{ 'Working…' if running else 'Write a new report' }}</button>
+  </form>
+</section>
+{% endmacro %}
+
+{% macro report_text(result) %}
+<section class="card ai-text">
+  <h2>Summary</h2>
+  <p>{{ result.summary }}</p>
+  <div class="grid two">
+    {% if result.observations %}
+    <div><h3>What stands out</h3><ul>{% for o in result.observations %}<li>{{ o }}</li>{% endfor %}</ul></div>
+    {% endif %}
+    {% if result.recommendations %}
+    <div><h3>Suggestions</h3><ul>{% for r in result.recommendations %}<li>{{ r }}</li>{% endfor %}</ul></div>
+    {% endif %}
+  </div>
+</section>
+{% endmacro %}
+
+{% macro history(runs, shown, kind) %}
+{% if runs|length > 1 or (runs and not shown) %}
+<details class="card">
+  <summary><strong>Earlier reports</strong> <span class="muted">({{ runs|length }})</span></summary>
+  <ul class="list">
+    {% for r in runs %}
+    <li class="{{ 'inactive' if r.status != 'done' }}">
+      <span class="date">{{ r.created_at.strftime('%d %b %H:%M') }}</span>
+      {% if r.status == 'done' %}<a class="grow" href="/ai/{{ kind }}?report={{ r.id }}">{{ r.model }}{{ ' · shown' if shown and r.id == shown.id }}</a>
+      {% else %}<span class="grow">{{ r.model }} · {{ 'working' if r.status == 'running' else 'failed' }}</span>{% endif %}
+      {% if r.status != 'running' %}<form method="post" action="/ai/reports/{{ r.id }}/delete"><button class="btn small">Delete</button></form>{% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+</details>
+{% endif %}
+{% endmacro %}

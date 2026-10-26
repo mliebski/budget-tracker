@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% from "_macros.html" import chart %}
+{% from "_ai.html" import ai_tabs, setup_notice, run_panel, report_text, history %}
+{% block title %}AI · Income & assets{% endblock %}
+{% block content %}
+<div class="page-head"><h1>AI</h1>{{ ai_tabs('income') }}</div>
+{{ setup_notice(model) }}
+{{ run_panel(kind, running, last_failed, model, months) }}
+
+{% if view %}
+<p class="hint">Report by {{ shown.model }}, written {{ shown.created_at.strftime('%d %b %Y at %H:%M') }}.</p>
+{{ report_text(result) }}
+
+<div class="stats card">
+  {% for key, label in [('now', 'Net worth now'), ('in_1_year', 'In 1 year'), ('in_5_years', 'In 5 years')] %}
+  <div class="stat"><span>{{ label }}</span><strong>{{ view.net_worth[key]|money(false) }}</strong>
+    <small>app: {{ view.app_net_worth[key]|money(false) }}</small></div>
+  {% endfor %}
+</div>
+
+{% if view.net_worth_off %}
+<p class="note">The AI's net worth today ({{ view.net_worth.now|money(false) }}) doesn't match your assets minus debts ({{ view.app_net_worth.now|money(false) }}). It has probably misread a debt as an asset, so treat its net-worth numbers with care.</p>
+{% endif %}
+
+<div class="grid two">
+  <section class="card">
+    <h2>Income forecast</h2>
+    {{ chart('chart-ai-income', view.chart, 220, 'AI income forecast per month compared with the app forecast') }}
+    <div class="table-wrap">
+      <table class="report">
+        <thead><tr><th>Month</th><th class="num">AI</th><th class="num">App</th></tr></thead>
+        <tbody>{% for r in view.income %}<tr><th scope="row">{{ r.month }}</th><td class="num">{{ r.ai|money(false) }}</td><td class="num ref">{{ r.app|money(false) if r.app is not none else '–' }}</td></tr>{% endfor %}</tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Assets and debts</h2>
+    <div class="table-wrap">
+      <table class="report">
+        <thead><tr><th>Name</th><th class="num">Now</th><th class="num">1 year</th><th class="num">5 years</th></tr></thead>
+        <tbody>
+          {% for a in view.assets %}
+          <tr><th scope="row">{{ a.name }}{% if a.ref %}<small class="muted block">{{ '%+g'|format(a.ref.rate|float) }}%/yr{{ ' · debt' if a.ref.liability }}</small>{% endif %}</th>
+            <td class="num">{{ a.now|money(false) }}</td>
+            <td class="num">{{ a.in_1_year|money(false) }}{% if a.ref %}<small class="muted block">app {{ a.ref.in_1_year|money(false) }}</small>{% endif %}</td>
+            <td class="num">{{ a.in_5_years|money(false) }}{% if a.ref %}<small class="muted block">app {{ a.ref.in_5_years|money(false) }}</small>{% endif %}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <p class="hint">“app” = latest value grown at its expected rate, compounded yearly. Set the rates on each asset under <a href="/assets">Assets</a>.</p>
+  </section>
+</div>
+{% elif not running %}
+<p class="card empty">No report yet. {{ 'Press “Write a new report” to create the first one.' if model else '' }}</p>
+{% endif %}
+
+{{ history(runs, shown, kind) }}
+{% endblock %}
+{% block scripts %}<script src="{{ static_url('vendor/chart.umd.min.js') }}"></script>{% endblock %}

@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% from "_ai.html" import ai_tabs, setup_notice %}
+{% block title %}AI · Chat{% endblock %}
+{% block content %}
+<div class="page-head"><h1>AI</h1>{{ ai_tabs('chat') }}</div>
+{{ setup_notice(model) }}
+
+<div class="ai-chat-layout">
+  <section class="card ai-chat" data-ai-chat data-chat-id="{{ chat.id if chat else '' }}">
+    <div class="ai-messages" data-messages aria-live="polite">
+      {% for m in messages %}
+      <div class="msg {{ m.role }}"><div class="bubble" data-markdown>{{ m.content }}</div></div>
+      {% else %}
+      <div class="ai-empty" data-empty>
+        <p>Ask anything about your budget. The AI sees your monthly totals, budgets, recurring items, planned purchases, assets and recent entries.</p>
+        <div class="chips">
+          {% for q in ['Where did most of my money go in the last 3 months?', 'Which categories are over budget this year?', 'How much did we spend on groceries last year?', 'Can we afford a $3,000 trip next summer?'] %}
+          <button type="button" class="chip" data-ask>{{ q }}</button>
+          {% endfor %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    <form class="ai-input" data-ai-form>
+      <label class="sr-only" for="ai-question">Your question</label>
+      <textarea id="ai-question" name="message" rows="2" placeholder="Ask about your spending, income, budget or assets…" required{{ ' disabled' if not model }}></textarea>
+      <button class="btn primary"{{ ' disabled' if not model }}>Ask</button>
+    </form>
+    <p class="hint">Runs on {{ model or 'no model yet' }} on your box. Answers can be wrong: check important numbers in Reports.</p>
+  </section>
+
+  <aside class="card ai-chats">
+    <div class="card-head"><h2>Chats</h2><a href="/ai/chat/new">+ New</a></div>
+    {% if chats %}
+    <ul class="list">
+      {% for c in chats %}
+      <li{{ ' class=current'|safe if chat and c.id == chat.id }}>
+        <a class="grow" href="/ai/chat/{{ c.id }}">{{ c.title }}<small class="muted block">{{ c.created_at.strftime('%d %b %Y') }}</small></a>
+        <form method="post" action="/ai/chat/{{ c.id }}/delete" data-confirm="Delete this chat?"><button class="btn small" aria-label="Delete chat">✕</button></form>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}<p class="empty">No chats yet.</p>{% endif %}
+  </aside>
+</div>
+{% endblock %}

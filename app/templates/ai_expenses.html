@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% from "_macros.html" import chart %}
+{% from "_ai.html" import ai_tabs, setup_notice, run_panel, report_text, history %}
+{% block title %}AI · Expense forecast{% endblock %}
+{% block content %}
+<div class="page-head"><h1>AI</h1>{{ ai_tabs('expenses') }}</div>
+{{ setup_notice(model) }}
+{{ run_panel(kind, running, last_failed, model, months) }}
+
+{% if view %}
+<p class="hint">Report by {{ shown.model }}, written {{ shown.created_at.strftime('%d %b %Y at %H:%M') }}.</p>
+{{ report_text(result) }}
+
+<section class="card">
+  <h2>Spending forecast by category</h2>
+  {{ chart('chart-ai-expenses', view.chart, 240, 'AI spending forecast per month compared with the app forecast') }}
+  <div class="table-wrap">
+    <table class="report">
+      <thead><tr><th>Category</th>{% for m in view.labels %}<th class="num">{{ m }}</th>{% endfor %}</tr></thead>
+      <tbody>
+        {% for r in view.rows %}
+        <tr><th scope="row">{{ r.category }}</th>{% for v in r['values'] %}<td class="num">{{ v|money(false) if v is not none else '–' }}</td>{% endfor %}</tr>
+        {% endfor %}
+      </tbody>
+      <tfoot>
+        <tr><th>Total (sum of categories)</th>{% for v in view.footer.sum %}<td class="num">{{ v|money(false) }}</td>{% endfor %}</tr>
+        <tr class="ref"><th>App forecast</th>{% for v in view.footer.app %}<td class="num">{{ v|money(false) }}</td>{% endfor %}</tr>
+      </tfoot>
+    </table>
+  </div>
+  {% if true in view.footer.mismatch %}
+  <p class="note">In some months the AI's own total doesn't match the sum of its categories{% for bad in view.footer.mismatch %}{% if bad %} ({{ view.labels[loop.index0] }}: said {{ view.footer.ai_total[loop.index0]|money(false) }}){% endif %}{% endfor %}. The table shows the sum of the categories.</p>
+  {% endif %}
+  <p class="hint">App forecast = recurring items + planned purchases + your average spending (see Forecast). Large gaps between the two are worth a look.</p>
+</section>
+{% elif not running %}
+<p class="card empty">No report yet. {{ 'Press “Write a new report” to create the first one.' if model else '' }}</p>
+{% endif %}
+
+{{ history(runs, shown, kind) }}
+{% endblock %}
+{% block scripts %}<script src="{{ static_url('vendor/chart.umd.min.js') }}"></script>{% endblock %}

@@ -12,6 +12,7 @@ A private budgeting and forecasting tool for your home network. It runs on a sma
 - **Assets & net worth**: bank accounts, investments (RRSP/TFSA), property, vehicles, mortgage, loans and credit cards, with a net-worth history.
 - **Receipts**: photograph a receipt from the Home page. The store, date and total are read automatically (OCR, English and French) and you only confirm. Attach photos or PDFs (invoices, quotes, warranty cards, manuals) to any entry or planned purchase, and search them by store, amount or text.
 - **Warranties**: warranty end date and serial number for appliances, electronics, the car or the roof, with their documents. Warranties about to run out show up on the Home page.
+- **AI assistant** (optional): a local Ollama model writes an expense forecast and an income & asset-growth forecast from your entries, and you can chat with it about your budget. It runs on the box, so your data stays at home.
 - **Nightly backups** of the database (kept for 30 days by default) and of all receipts and documents.
 
 Receipts are read by Tesseract running on the box itself, so photos and their text never leave your home network.
@@ -92,6 +93,39 @@ The containers restart automatically after a reboot or power cut.
 - iPhone: photos taken through the upload button are sent as JPEG. HEIC files from the Files app aren't supported; set *Settings › Camera › Formats › Most Compatible* if you upload those.
 - Deleting an entry never deletes its files: they move to *Unfiled*. Files are only deleted with their own *Delete* button.
 
+### AI assistant (Ollama)
+
+The **AI** tab connects to the Ollama server running natively on the box. One-time setup on the box:
+
+1. Install Ollama and a model if you haven't already. A mid-size model is a good balance on a mini PC:
+   ```bash
+   curl -fsSL https://ollama.com/install.sh | sh
+   ollama pull qwen3:8b
+   ```
+2. Ollama normally listens only on `127.0.0.1`, which the app's container can't reach. Let it listen on all interfaces:
+   ```bash
+   sudo systemctl edit ollama
+   ```
+   Add these two lines in the editor, save, then run `sudo systemctl restart ollama`:
+   ```
+   [Service]
+   Environment="OLLAMA_HOST=0.0.0.0:11434"
+   ```
+3. Ollama has no password, so keep it off the rest of the network. With ufw enabled (section 2, step 7), allow only the Docker networks:
+   ```bash
+   sudo ufw allow from 172.16.0.0/12 to any port 11434 proto tcp
+   ```
+   Without ufw, any device in your home network could use Ollama directly (your budget data is not exposed by this, only the model).
+4. In the app, open **Settings › AI**, pick the model and save. *Working* means the app can reach Ollama.
+
+How it works:
+
+- **Expense forecast** and **Income & assets** cover the next 6 months. Press *Write a new report*; on a CPU-only box this takes one to a few minutes and runs in the background, so you can leave the page. Reports are kept, so you can look at earlier ones.
+- The AI does the forecasting itself from your history, recurring items, planned purchases, budgets and assets. Small models make arithmetic mistakes, so each report shows the app's own forecast next to the AI's numbers, and flags months where the AI's total doesn't add up.
+- Asset growth uses the *expected change per year* on each asset (Assets › asset › Details). Defaults by type: investments +5%, property +3%, vehicles −15%, everything else 0%.
+- **Chat** answers questions about your data: monthly totals by category for the last 24 months, budgets, recurring and planned items, assets, totals by subcategory and tag for the last year, and the 40 most recent entries. Chats are saved.
+- Nothing is sent anywhere except the Ollama address in Settings.
+
 ## 4. How the numbers are calculated
 
 - **Budget year**: October–September. “FY 2025–26” runs from 1 Oct 2025 to 30 Sep 2026. Fiscal Q1 is Oct–Dec.
@@ -164,7 +198,7 @@ docker compose down               # stop everything (data is kept)
 
 ## 8. Local development (Windows/Mac/Linux)
 
-The app also runs on SQLite, so no database server is needed for development. Uploaded files go to `./uploads`. OCR is off unless `OCR_URL` points at a running OCR container; receipts can still be uploaded and typed in by hand.
+The app also runs on SQLite, so no database server is needed for development. Uploaded files go to `./uploads`. OCR is off unless `OCR_URL` points at a running OCR container; receipts can still be uploaded and typed in by hand. For the AI tab, set `OLLAMA_URL=http://127.0.0.1:11434` (or the address in Settings) if Ollama runs on your PC; `python tests/fake_ollama.py` starts a stand-in that answers with sample reports.
 
 ```bash
 python -m venv .venv
@@ -204,6 +238,9 @@ app/
   files.py         storing uploaded photos/PDFs (rotation, size, metadata removal, thumbnails)
   ocr.py           client for the OCR container
   receipts.py      reading store, date and total from receipt text; category suggestions
+  ai.py            client for the local Ollama server
+  ai_data.py       what the AI is told (data snapshot), the AI reports, the app's comparison numbers
+  migrate.py       adds new columns to tables created by older versions
   web.py           templates, form parsing, shared helpers
   routes/          one module per page
   templates/       HTML (Jinja2)
@@ -214,4 +251,4 @@ scripts/           Docker install, first-time setup, updates
 tests/             pytest suite
 ```
 
-Tables are created automatically on start. If a future change modifies existing tables, it should ship with a migration step.
+Tables are created automatically on start. A new column on an existing table goes into `app/migrate.py`, which adds it on start when it's missing.

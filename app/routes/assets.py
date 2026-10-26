@@ -1,4 +1,5 @@
 from datetime import date
+from decimal import Decimal, InvalidOperation
 
 from fastapi import APIRouter, Depends, Form, Request
 from sqlalchemy import select
@@ -21,6 +22,20 @@ def _set_value(db: Session, asset: Asset, value: str, on: str) -> AssetValue:
         row = AssetValue(asset_id=asset.id, date=d, value=amount)
         db.add(row)
     return row
+
+
+def _growth(text: str) -> Decimal | None:
+    """'5', '-15', '4.5 %' -> percent per year; empty -> use the type's default."""
+    cleaned = text.replace("%", "").replace(" ", "").replace(",", ".")
+    if not cleaned:
+        return None
+    try:
+        value = Decimal(cleaned).quantize(Decimal("0.01"))
+    except InvalidOperation:
+        raise UserError(f"“{text}” is not a percentage. Use e.g. 5 or -15.")
+    if not -100 <= value <= 100:
+        raise UserError("The expected change must be between -100% and +100% per year.")
+    return value
 
 
 def _validate(name: str, type_: str) -> None:
@@ -62,9 +77,10 @@ def assets_page(request: Request, db: Session = Depends(get_db)):
 
 @router.post("/assets")
 def asset_create(name: str = Form(""), type: str = Form(""), note: str = Form(""),
-                 value: str = Form(""), value_date: str = Form(""), db: Session = Depends(get_db)):
+                 value: str = Form(""), value_date: str = Form(""), growth: str = Form(""),
+                 db: Session = Depends(get_db)):
     _validate(name, type)
-    asset = Asset(name=name.strip()[:100], type=type, note=note.strip()[:255])
+    asset = Asset(name=name.strip()[:100], type=type, note=note.strip()[:255], growth_rate=_growth(growth))
     db.add(asset)
     db.flush()
     if value.strip():
@@ -101,12 +117,13 @@ def asset_detail(request: Request, aid: int, db: Session = Depends(get_db)):
 
 @router.post("/assets/{aid}")
 def asset_update(aid: int, name: str = Form(""), type: str = Form(""), note: str = Form(""),
-                 db: Session = Depends(get_db)):
+                 growth: str = Form(""), db: Session = Depends(get_db)):
     asset = db.get(Asset, aid)
     if not asset:
         return redirect("/assets")
     _validate(name, type)
     asset.name, asset.type, asset.note = name.strip()[:100], type, note.strip()[:255]
+    asset.growth_rate = _growth(growth)
     db.commit()
     return redirect(f"/assets/{aid}", msg="Saved.")
 

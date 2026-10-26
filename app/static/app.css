@@ -281,6 +281,42 @@ tr.current { background: var(--accent-soft); }
 details.card > summary { cursor: pointer; }
 details.card[open] > summary { margin-bottom: .5rem; }
 
+/* AI */
+.ai-run .grow { flex: 1 1 320px; min-width: 0; }
+.ai-run p { margin: 0; }
+.ai-run form { margin: 0; }
+.ai-text p { margin: 0 0 .5rem; max-width: 75ch; }
+.ai-text ul { margin: .25rem 0 0; padding-left: 1.2rem; display: grid; gap: .35rem; }
+.ai-text h3 { margin-top: .5rem; }
+table.report tr.ref th, table.report tr.ref td, table.report td.ref { color: var(--muted); font-weight: 400; }
+.ai-chat-layout { display: grid; gap: 16px; grid-template-columns: 1fr; }
+.ai-chat-layout > .card { margin-bottom: 0; }
+@media (min-width: 860px) { .ai-chat-layout { grid-template-columns: minmax(0, 1fr) 280px; } }
+.ai-chat { display: flex; flex-direction: column; gap: .75rem; min-width: 0; }
+.ai-messages { display: flex; flex-direction: column; gap: .75rem; min-height: 240px; max-height: 65vh; overflow-y: auto; padding: 2px; }
+.msg { display: flex; }
+.msg.user { justify-content: flex-end; }
+.bubble { max-width: min(85%, 70ch); padding: .6rem .85rem; border-radius: 12px; overflow-wrap: anywhere; min-width: 0; }
+.msg.user .bubble { background: var(--accent); color: var(--accent-text); white-space: pre-wrap; }
+.msg.assistant .bubble { background: var(--surface-2); }
+.bubble p { margin: 0 0 .5rem; }
+.bubble p:last-child, .bubble ul:last-child, .bubble ol:last-child { margin-bottom: 0; }
+.bubble ul, .bubble ol { margin: 0 0 .5rem; padding-left: 1.2rem; }
+.bubble h4 { margin: .25rem 0; font-size: 1rem; }
+.bubble code { background: var(--surface); }
+.bubble .md-table { overflow-x: auto; margin: 0 0 .5rem; }
+.bubble table { font-size: .85rem; }
+.bubble th, .bubble td { padding: .25rem .5rem; }
+.msg .thinking { color: var(--muted); font-style: italic; }
+.msg .error { color: var(--neg); }
+.ai-empty { color: var(--muted); display: grid; gap: .5rem; align-content: start; }
+.ai-empty p { margin: 0; }
+.ai-input { display: flex; gap: .5rem; align-items: flex-end; }
+.ai-input textarea { flex: 1; min-height: 52px; max-height: 200px; resize: vertical; padding: .6rem .7rem; border: 1px solid var(--border);
+  border-radius: 10px; background: var(--surface); color: var(--text); min-width: 0; }
+.ai-chats li.current a { color: var(--accent); font-weight: 600; }
+.ai-chats .grow { overflow-wrap: anywhere; }
+
 @media (max-width: 600px) {
   .page { padding: 12px; }
   .card { padding: 14px; }

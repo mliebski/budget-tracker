@@ -29,6 +29,12 @@ ASSET_TYPES = {
 }
 LIQUID_TYPES = ("bank", "cash")
 
+# Expected change in value per year (%), used until the user sets their own rate.
+DEFAULT_GROWTH = {
+    "bank": 0, "cash": 0, "investment": 5, "property": 3, "vehicle": -15, "other_asset": 0,
+    "mortgage": 0, "loan": 0, "credit_card": 0, "other_liability": 0,
+}
+
 transaction_tags = Table(
     "transaction_tags", Base.metadata,
     Column("transaction_id", ForeignKey("transactions.id", ondelete="CASCADE"), primary_key=True),
@@ -163,6 +169,8 @@ class Asset(Base):
     type: Mapped[str] = mapped_column(String(20))
     note: Mapped[str] = mapped_column(String(255), default="")
     archived: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Expected change per year in %, e.g. 5 for an index fund, -15 for a car. None = type default.
+    growth_rate: Mapped[Decimal | None] = mapped_column(Numeric(6, 2))
 
     values: Mapped[list["AssetValue"]] = relationship(
         cascade="all, delete-orphan", order_by="AssetValue.date")
@@ -174,6 +182,10 @@ class Asset(Base):
     @property
     def type_label(self) -> str:
         return ASSET_TYPES[self.type][0]
+
+    @property
+    def growth(self) -> Decimal:
+        return self.growth_rate if self.growth_rate is not None else Decimal(DEFAULT_GROWTH.get(self.type, 0))
 
 
 class AssetValue(Base):
@@ -298,6 +310,42 @@ class Attachment(Base):
         if self.planned_id:
             return f"/planned?edit={self.planned_id}"
         return None
+
+
+class AiReport(Base):
+    """One run of an AI report. The result is the JSON the model returned."""
+    __tablename__ = "ai_reports"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    kind: Mapped[str] = mapped_column(String(20), index=True)       # expenses | income
+    status: Mapped[str] = mapped_column(String(10), default="running")  # running | done | failed
+    model: Mapped[str] = mapped_column(String(100))
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=dt.datetime.now)
+    finished_at: Mapped[dt.datetime | None] = mapped_column(DateTime)
+    result: Mapped[str] = mapped_column(Text, default="")
+    error: Mapped[str] = mapped_column(String(500), default="")
+
+
+class AiChat(Base):
+    __tablename__ = "ai_chats"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    title: Mapped[str] = mapped_column(String(120), default="New chat")
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=dt.datetime.now)
+
+    messages: Mapped[list["AiMessage"]] = relationship(
+        cascade="all, delete-orphan", order_by="AiMessage.id")
+
+
+class AiMessage(Base):
+    __tablename__ = "ai_messages"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    chat_id: Mapped[int] = mapped_column(ForeignKey("ai_chats.id", ondelete="CASCADE"), index=True)
+    role: Mapped[str] = mapped_column(String(10))  # user | assistant
+    content: Mapped[str] = mapped_column(Text, default="")
+    model: Mapped[str] = mapped_column(String(100), default="")
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=dt.datetime.now)
 
 
 class Setting(Base):

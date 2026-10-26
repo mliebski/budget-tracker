@@ -132,6 +132,154 @@
     form.querySelectorAll("[data-years]").forEach((b) => b.addEventListener("click", sync));
   });
 
+  // --- AI: wait for a report, chat with streamed answers --------------------------------
+  const poll = document.querySelector("[data-ai-poll]");
+  if (poll) {
+    const check = () => fetch(`/ai/reports/${poll.dataset.aiPoll}/status`, { cache: "no-store" })
+      .then((r) => r.json())
+      .then((s) => { if (s.status !== "running") location.reload(); else setTimeout(check, 4000); })
+      .catch(() => setTimeout(check, 8000));
+    setTimeout(check, 4000);
+  }
+
+  // A small Markdown subset for model answers. Everything is escaped first, so the
+  // model's text can never inject markup.
+  function escapeHtml(s) {
+    return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  }
+  function inline(s) {
+    return s.replace(/`([^`]+)`/g, "<code>$1</code>")
+      .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+      .replace(/(^|[^*])\*([^*\s][^*]*)\*/g, "$1<em>$2</em>");
+  }
+  function markdown(src) {
+    const lines = escapeHtml(src.replace(/\r/g, "")).split("\n");
+    const out = [];
+    let list = null, para = [], table = [];
+    const flushPara = () => { if (para.length) { out.push(`<p>${inline(para.join("<br>"))}</p>`); para = []; } };
+    const flushList = () => { if (list) { out.push(`<${list.tag}>${list.items.map((i) => `<li>${inline(i)}</li>`).join("")}</${list.tag}>`); list = null; } };
+    const flushTable = () => {
+      if (!table.length) return;
+      const rows = table.filter((r) => !/^\|?\s*:?-{2,}/.test(r)).map((r) => r.replace(/^\||\|$/g, "").split("|").map((c) => inline(c.trim())));
+      const [head, ...body] = rows;
+      out.push(`<div class="md-table"><table><thead><tr>${head.map((c) => `<th>${c}</th>`).join("")}</tr></thead><tbody>` +
+        body.map((r) => `<tr>${r.map((c) => `<td>${c}</td>`).join("")}</tr>`).join("") + "</tbody></table></div>");
+      table = [];
+    };
+    for (const line of lines) {
+      const t = line.trim();
+      let m;
+      if (t.startsWith("|")) { flushPara(); flushList(); table.push(t); continue; }
+      flushTable();
+      if (!t) { flushPara(); flushList(); continue; }
+      if ((m = t.match(/^#{1,6}\s+(.*)/))) { flushPara(); flushList(); out.push(`<h4>${inline(m[1])}</h4>`); continue; }
+      if ((m = t.match(/^[-*•]\s+(.*)/)) || (m = t.match(/^\d+[.)]\s+(.*)/))) {
+        flushPara();
+        const tag = /^\d/.test(t) ? "ol" : "ul";
+        if (!list || list.tag !== tag) { flushList(); list = { tag, items: [] }; }
+        list.items.push(m[1]);
+        continue;
+      }
+      flushList();
+      para.push(t);
+    }
+    flushPara(); flushList(); flushTable();
+    return out.join("");
+  }
+  document.querySelectorAll("[data-markdown]").forEach((el) => { el.innerHTML = markdown(el.textContent); });
+
+  const chatBox = document.querySelector("[data-ai-chat]");
+  if (chatBox) {
+    const form = chatBox.querySelector("[data-ai-form]");
+    const input = form.querySelector("textarea");
+    const list = chatBox.querySelector("[data-messages]");
+    const button = form.querySelector("button");
+    const scroll = () => { list.scrollTop = list.scrollHeight; };
+    const bubble = (role, html) => {
+      const empty = list.querySelector("[data-empty]");
+      if (empty) empty.remove();
+      const row = document.createElement("div");
+      row.className = `msg ${role}`;
+      row.innerHTML = `<div class="bubble">${html}</div>`;
+      list.appendChild(row);
+      scroll();
+      return row.firstChild;
+    };
+    scroll();
+    chatBox.querySelectorAll("[data-ask]").forEach((chip) => chip.addEventListener("click", () => {
+      input.value = chip.textContent.trim();
+      form.requestSubmit();
+    }));
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); form.requestSubmit(); }
+    });
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const question = input.value.trim();
+      if (!question || button.disabled) return;
+      bubble("user", escapeHtml(question));
+      input.value = "";
+      button.disabled = true;
+      const answer = bubble("assistant", '<span class="thinking">Reading your budget…</span>');
+      let text = "";
+      try {
+        const body = new FormData();
+        body.append("message", question);
+        body.append("chat_id", chatBox.dataset.chatId || "");
+        const response = await fetch("/ai/chat/send", { method: "POST", body });
+        if (!response.ok) throw new Error((await response.json()).error || "The question could not be sent.");
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        for (;;) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const parts = buffer.split("\n");
+          buffer = parts.pop();
+          for (const part of parts) {
+            if (!part.trim()) continue;
+            const ev = JSON.parse(part);
+            if (ev.t === "chat" && !chatBox.dataset.chatId) {
+              chatBox.dataset.chatId = ev.id;
+              history.replaceState(null, "", `/ai/chat/${ev.id}`);
+              // Show the new chat in the side list without a reload.
+              const side = document.querySelector(".ai-chats");
+              if (side) {
+                let ul = side.querySelector("ul.list");
+                if (!ul) {
+                  const empty = side.querySelector(".empty");
+                  if (empty) empty.remove();
+                  ul = document.createElement("ul");
+                  ul.className = "list";
+                  side.appendChild(ul);
+                }
+                const li = document.createElement("li");
+                li.className = "current";
+                li.innerHTML = `<a class="grow" href="/ai/chat/${ev.id}">${escapeHtml(question.slice(0, 120))}</a>`;
+                ul.prepend(li);
+              }
+            } else if (ev.t === "thinking" && !text) {
+              answer.innerHTML = '<span class="thinking">Thinking…</span>';
+            } else if (ev.t === "text") {
+              text += ev.c;
+              answer.innerHTML = markdown(text);
+              scroll();
+            } else if (ev.t === "error") {
+              answer.innerHTML = markdown(text) + `<p class="error">${escapeHtml(ev.c)}</p>`;
+            }
+          }
+        }
+        if (!text && !answer.querySelector(".error")) answer.innerHTML = '<p class="error">No answer came back.</p>';
+      } catch (err) {
+        answer.innerHTML = `<p class="error">${escapeHtml(err.message)}</p>`;
+      } finally {
+        button.disabled = false;
+        input.focus();
+      }
+    });
+  }
+
   // --- Budget form: live yearly totals ------------------------------------------------
   const budgetForm = document.querySelector("form[data-budget-form]");
   if (budgetForm) {

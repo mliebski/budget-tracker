@@ -22,7 +22,10 @@
       <label class="field"><span>Name</span><input name="name" required maxlength="100" value="{{ asset.name }}"></label>
       <label class="field"><span>Type</span>
         <select name="type">{% for k, t in ASSET_TYPES.items() %}<option value="{{ k }}"{{ ' selected' if asset.type == k }}>{{ t[0] }}{{ ' (liability)' if t[1] }}</option>{% endfor %}</select></label>
+      <label class="field"><span>Expected change per year (%)</span>
+        <input name="growth" inputmode="decimal" value="{{ asset.growth_rate if asset.growth_rate is not none else '' }}" placeholder="{{ DEFAULT_GROWTH[asset.type] }} (default for {{ asset.type_label|lower }})"></label>
       <label class="field"><span>Note</span><input name="note" maxlength="255" value="{{ asset.note }}"></label>
+      <p class="hint">Used by the AI forecast: e.g. 5 for an index fund, 3 for a house, -15 for a car. For a debt, how much the balance changes per year. Empty uses the default.</p>
       <button class="btn block">Save details</button>
     </form>
   </section>
