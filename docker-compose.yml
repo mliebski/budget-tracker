@@ -1,6 +1,6 @@
 services:
   db:
-    image: mariadb:11.4
+    image: mariadb:13.0
     restart: unless-stopped
     environment:
       MARIADB_DATABASE: budget
@@ -47,7 +47,7 @@ services:
     restart: unless-stopped
 
   backup:
-    image: mariadb:11.4
+    image: mariadb:13.0
     restart: unless-stopped
     depends_on:
       db:
