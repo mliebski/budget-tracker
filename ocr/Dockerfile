@@ -1,6 +1,6 @@
 # Local OCR service: Tesseract (English + French) behind a tiny HTTP API.
 # Only the app container can reach it; no port is published.
-FROM python:3.12-slim
+FROM python:3.15-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
